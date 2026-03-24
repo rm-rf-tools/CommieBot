@@ -20,6 +20,8 @@ class MutualAidBot(commands.Bot):
         await self.load_extension("cogs.admin")
         await self.load_extension("cogs.mutual_aid")
         await self.load_extension("cogs.reminders")
+        await self.load_extension("cogs.test")
+
         
         # 3. Sync Slash Commands
         await self.tree.sync()

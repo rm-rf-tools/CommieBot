@@ -16,7 +16,6 @@ class DatabaseController:
                     role_id TEXT
                 )
             ''')
-            
             await db.execute('''
                 CREATE TABLE IF NOT EXISTS aids (
                     id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -28,8 +27,7 @@ class DatabaseController:
                     status TEXT DEFAULT 'active'
                 )
             ''')
-            
-            # Migrations (Add columns if they don't exist yet)
+            # Migrations
             async with db.execute("PRAGMA table_info(aids)") as cursor:
                 columns = [col[1] for col in await cursor.fetchall()]
                 if "guild_id" not in columns:
@@ -40,16 +38,12 @@ class DatabaseController:
                     await db.execute("ALTER TABLE aids ADD COLUMN created_at INTEGER")
                 if "next_reminder_at" not in columns:
                     await db.execute("ALTER TABLE aids ADD COLUMN next_reminder_at INTEGER")
-
             await db.commit()
 
     @staticmethod
     async def set_role(guild_id: str, role_id: str):
         async with aiosqlite.connect(DB_PATH) as db:
-            await db.execute('''
-                INSERT OR REPLACE INTO server_configs (guild_id, role_id)
-                VALUES (?, ?)
-            ''', (guild_id, role_id))
+            await db.execute('INSERT OR REPLACE INTO server_configs (guild_id, role_id) VALUES (?, ?)', (guild_id, role_id))
             await db.commit()
 
     @staticmethod
@@ -60,15 +54,14 @@ class DatabaseController:
                 return row[0] if row else None
 
     @staticmethod
-    async def create_aid(guild_id: str, channel_id: str, user_id: str, amount: float, reason: str):
+    async def create_aid(guild_id: str, channel_id: str, user_id: str, amount: float, description: str):
         now = int(time.time())
-        next_reminder = now + 86400 # Default reminder 24 hours (86400 seconds) from now
-
+        next_reminder = now + 86400 
         async with aiosqlite.connect(DB_PATH) as db:
             cursor = await db.execute('''
                 INSERT INTO aids (guild_id, channel_id, user_id, amount_requested, reason, created_at, next_reminder_at)
                 VALUES (?, ?, ?, ?, ?, ?, ?)
-            ''', (guild_id, channel_id, user_id, amount, reason, now, next_reminder))
+            ''', (guild_id, channel_id, user_id, amount, description, now, next_reminder))
             await db.commit()
             return cursor.lastrowid
 
@@ -99,7 +92,6 @@ class DatabaseController:
     @staticmethod
     async def delete_aid(aid_id: int, guild_id: str):
         async with aiosqlite.connect(DB_PATH) as db:
-            # Check if it exists
             async with db.execute("SELECT id FROM aids WHERE id = ? AND status = 'active' AND (guild_id = ? OR guild_id IS NULL)", (aid_id, guild_id)) as cursor:
                 if not await cursor.fetchone():
                     return False
@@ -125,7 +117,16 @@ class DatabaseController:
 
     @staticmethod
     async def reset_reminder(aid_id: int):
-        next_reminder = int(time.time()) + 86400 # Add another 24 hours
+        next_reminder = int(time.time()) + 86400
         async with aiosqlite.connect(DB_PATH) as db:
             await db.execute("UPDATE aids SET next_reminder_at = ? WHERE id = ?", (next_reminder, aid_id))
             await db.commit()
+
+    @staticmethod
+    async def get_aid_by_id(aid_id: int, guild_id: str):
+        async with aiosqlite.connect(DB_PATH) as db:
+            async with db.execute('''
+                SELECT id, guild_id, channel_id, user_id, amount_requested, amount_received, reason 
+                FROM aids WHERE id = ? AND status = 'active' AND (guild_id = ? OR guild_id IS NULL)
+            ''', (aid_id, guild_id)) as cursor:
+                return await cursor.fetchone()
