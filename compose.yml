@@ -1,0 +1,10 @@
+
+services:
+  mutual-aid-bot:
+    build: .
+    container_name: mutual_aid_bot
+    restart: unless-stopped
+    env_file:
+      - .env
+    volumes:
+      - ./data:/app/data
