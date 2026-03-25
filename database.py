@@ -66,6 +66,12 @@ class DatabaseController:
             async with db.execute('SELECT name FROM quote_templates ORDER BY name ASC') as cursor:
                 return await cursor.fetchall()
 
+    @staticmethod
+    async def delete_quote_template(name: str):
+        async with aiosqlite.connect(DB_PATH) as db:
+            await db.execute("DELETE FROM quote_templates WHERE name = ?", (name,))
+            await db.commit()
+            
     # --- MUTUAL AID METHODS ---
     @staticmethod
     async def set_role(guild_id: str, role_id: str):

@@ -403,5 +403,33 @@ class QuoteMaker(commands.Cog):
         except Exception as e:
             await interaction.followup.send(f"❌ Failed to generate quote: {e}")
 
+    @app_commands.command(name="quotedelete", description="Remove a quote background template.")
+    @app_commands.describe(name="The template to delete (start typing to search)")
+    @app_commands.autocomplete(name=template_autocomplete) # Reuses your existing autocomplete
+    @app_commands.checks.has_permissions(manage_messages=True)
+    async def quotedelete(self, interaction: discord.Interaction, name: str):
+        db_name = clean_name(name)
+        pretty_name = display_name(db_name)
+        
+        # 1. Get the template path from the database
+        template_path = await DatabaseController.get_quote_template(db_name)
+        
+        if not template_path:
+            return await interaction.response.send_message(f"❌ Template **{pretty_name}** does not exist in the database.", ephemeral=True)
+
+        await interaction.response.defer()
+
+        try:
+            # 2. Delete the physical file if it exists
+            if os.path.exists(template_path):
+                os.remove(template_path)
+            
+            # 3. Delete the record from the database
+            # Note: Ensure your DatabaseController has a delete_quote_template method
+            await DatabaseController.delete_quote_template(db_name)
+            
+            await interaction.followup.send(f"✅ Successfully deleted template: **{pretty_name}**")
+        except Exception as e:
+            await interaction.followup.send(f"❌ Failed to delete template: {e}")
 async def setup(bot):
     await bot.add_cog(QuoteMaker(bot))
