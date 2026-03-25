@@ -1,4 +1,3 @@
-# database.py
 import aiosqlite
 import os
 import time
@@ -27,6 +26,13 @@ class DatabaseController:
                     status TEXT DEFAULT 'active'
                 )
             ''')
+            # NEW: Quote Templates table
+            await db.execute('''
+                CREATE TABLE IF NOT EXISTS quote_templates (
+                    name TEXT PRIMARY KEY,
+                    file_path TEXT
+                )
+            ''')
             # Migrations
             async with db.execute("PRAGMA table_info(aids)") as cursor:
                 columns = [col[1] for col in await cursor.fetchall()]
@@ -40,6 +46,27 @@ class DatabaseController:
                     await db.execute("ALTER TABLE aids ADD COLUMN next_reminder_at INTEGER")
             await db.commit()
 
+    # --- QUOTE MAKER METHODS ---
+    @staticmethod
+    async def add_quote_template(name: str, file_path: str):
+        async with aiosqlite.connect(DB_PATH) as db:
+            await db.execute('INSERT OR REPLACE INTO quote_templates (name, file_path) VALUES (?, ?)', (name, file_path))
+            await db.commit()
+
+    @staticmethod
+    async def get_quote_template(name: str):
+        async with aiosqlite.connect(DB_PATH) as db:
+            async with db.execute('SELECT file_path FROM quote_templates WHERE name = ?', (name,)) as cursor:
+                row = await cursor.fetchone()
+                return row[0] if row else None
+
+    @staticmethod
+    async def get_all_quote_templates():
+        async with aiosqlite.connect(DB_PATH) as db:
+            async with db.execute('SELECT name FROM quote_templates ORDER BY name ASC') as cursor:
+                return await cursor.fetchall()
+
+    # --- MUTUAL AID METHODS ---
     @staticmethod
     async def set_role(guild_id: str, role_id: str):
         async with aiosqlite.connect(DB_PATH) as db:
