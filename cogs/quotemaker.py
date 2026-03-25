@@ -51,7 +51,7 @@ FADE_LINE_SPACING = 30
 # Dynamic Scaling Settings
 FADE_AUTHOR_FONT_SIZE = 85                 # HUGE author font
 FADE_QUOTE_START_SIZE = 85                # Maximum quote size it will try
-FADE_QUOTE_MIN_SIZE = 40                   # Minimum quote size it will shrink to
+FADE_QUOTE_MIN_SIZE = 12                   # Minimum quote size it will shrink to
 FADE_MAX_TEXT_WIDTH_PCT = 0.55             # Quote max width (55% of image width)
 FADE_MAX_TEXT_HEIGHT_PCT = 0.70            # Max height the quote+author can take up
 
@@ -340,7 +340,7 @@ class QuoteMaker(commands.Cog):
 
     @app_commands.command(name="quoteadd", description="Add a new quote background template.")
     @app_commands.describe(name="Name for this template (e.g. Karl Marx)", photo="The background image to crop and save")
-    @app_commands.checks.has_permissions(manage_messages=True)
+    # @app_commands.checks.has_permissions(manage_messages=True)
     async def quoteadd(self, interaction: discord.Interaction, name: str, photo: discord.Attachment):
         if not photo.content_type or not photo.content_type.startswith('image/'):
             return await interaction.response.send_message("❌ Please upload a valid image file.", ephemeral=True)
@@ -406,7 +406,7 @@ class QuoteMaker(commands.Cog):
     @app_commands.command(name="quotedelete", description="Remove a quote background template.")
     @app_commands.describe(name="The template to delete (start typing to search)")
     @app_commands.autocomplete(name=template_autocomplete) # Reuses your existing autocomplete
-    @app_commands.checks.has_permissions(manage_messages=True)
+    # @app_commands.checks.has_permissions(manage_messages=True)
     async def quotedelete(self, interaction: discord.Interaction, name: str):
         db_name = clean_name(name)
         pretty_name = display_name(db_name)
