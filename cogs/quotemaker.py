@@ -7,8 +7,39 @@ import textwrap
 from PIL import Image, ImageEnhance, ImageDraw, ImageFont
 from database import DatabaseController
 
+# ==========================================
+#        CONFIGURATION & SETTINGS
+# ==========================================
+
+# Directories
 QUOTE_DIR = "./data/quotes"
-FONT_DIR = "./static/fonts" # Updated to match your exact directory tree
+FONT_DIR = "./static/fonts"
+
+# Image Processing
+IMAGE_WIDTH = 1080
+IMAGE_HEIGHT = 1350
+IMAGE_DARKEN_FACTOR = 0.5  # 0.0 is black, 1.0 is original brightness
+JPEG_QUALITY = 90
+
+# Fonts
+QUOTE_FONT_FILE = "MouldyCheeseRegular-WyMWG.ttf"
+QUOTE_FONT_SIZE = 75
+
+AUTHOR_FONT_FILE = "MangabeyRegular-rgqVO.otf"
+AUTHOR_FONT_SIZE = 86
+
+# Text Layout
+MAX_CHAR_COUNT = 25
+LINE_HEIGHT = 55           # Multiplier for calculating author placement
+AUTHOR_OFFSET_BASE = 40    # Extra pixels added between the quote and the author
+
+# Colors & Effects (RGBA format: Red, Green, Blue, Alpha/Transparency)
+TEXT_COLOR = (255, 255, 255, 255)  # Solid White
+SHADOW_COLOR = (0, 0, 0, 128)      # Semi-transparent Black
+SHADOW_OFFSET_X = 5
+SHADOW_OFFSET_Y = 5
+
+# ==========================================
 
 # Ensure directory for quotes exists
 os.makedirs(QUOTE_DIR, exist_ok=True)
@@ -26,8 +57,8 @@ class QuoteMaker(commands.Cog):
         self.bot = bot
 
     def process_and_save_image(self, image_bytes: bytes, filename: str) -> str:
-        """Crops to 1080x1350, resizes, and darkens the image."""
-        target_size = (1080, 1350)
+        """Crops, resizes, and darkens the image based on config settings."""
+        target_size = (IMAGE_WIDTH, IMAGE_HEIGHT)
         desired_ratio = target_size[0] / target_size[1]
 
         # Open image from bytes
@@ -50,39 +81,38 @@ class QuoteMaker(commands.Cog):
         bottom = top + new_height
         img = img.crop((left, top, right, bottom))
 
-        # Resize to exact standard Instagram Portrait size
+        # Resize to exact standard portrait size
         if img.size != target_size:
             img = img.resize(target_size, Image.Resampling.LANCZOS)
 
-        # Darken the image by 50%
+        # Darken the image
         enhancer = ImageEnhance.Brightness(img)
-        img = enhancer.enhance(0.5)
+        img = enhancer.enhance(IMAGE_DARKEN_FACTOR)
 
         # Save the file
         file_path = os.path.join(QUOTE_DIR, f"{filename}.jpg")
-        img.save(file_path, "JPEG", quality=90)
+        img.save(file_path, "JPEG", quality=JPEG_QUALITY)
         return file_path
 
     def generate_quote_image(self, template_path: str, quote_text: str, author_text: str) -> io.BytesIO:
-        """Draws the text onto the pre-processed template image exactly like the original script."""
+        """Draws the text onto the pre-processed template image."""
         img = Image.open(template_path).convert("RGBA")
         
         # Load EXACT fonts from your static folder
         try:
-            quote_font = ImageFont.truetype(f"{FONT_DIR}/MouldyCheeseRegular-WyMWG.ttf", size=75)
-            author_font = ImageFont.truetype(f"{FONT_DIR}/MangabeyRegular-rgqVO.otf", size=45)
+            quote_font = ImageFont.truetype(os.path.join(FONT_DIR, QUOTE_FONT_FILE), size=QUOTE_FONT_SIZE)
+            author_font = ImageFont.truetype(os.path.join(FONT_DIR, AUTHOR_FONT_FILE), size=AUTHOR_FONT_SIZE)
         except IOError:
             quote_font = ImageFont.load_default()
             author_font = ImageFont.load_default()
-            print("WARNING: Could not find fonts in static/fonts/. Using default.")
+            print(f"WARNING: Could not find fonts in {FONT_DIR}. Using default.")
 
         draw = ImageDraw.Draw(im=img)
 
-        # Wrap text exactly like example program
-        max_char_count = 25
-        new_text = textwrap.fill(text=quote_text, width=max_char_count)
+        # Wrap text
+        new_text = textwrap.fill(text=quote_text, width=MAX_CHAR_COUNT)
         
-        # FIX FONT WITH SPACES (Critical for MouldyCheese font padding)
+        # FIX FONT WITH SPACES (Critical for certain fonts' padding)
         new_text = new_text.replace(" ", "  ")
         
         x_text = img.size[0] / 2
@@ -90,22 +120,21 @@ class QuoteMaker(commands.Cog):
         position = (x_text, y_text)
 
         # Draw the shadow text
-        shadow_color = (0, 0, 0, 128)
-        shadow_position = (x_text+5, y_text+5)
-        draw.text(shadow_position, new_text, font=quote_font, fill=shadow_color, anchor='mm', align='center')
+        shadow_position = (x_text + SHADOW_OFFSET_X, y_text + SHADOW_OFFSET_Y)
+        draw.text(shadow_position, new_text, font=quote_font, fill=SHADOW_COLOR, anchor='mm', align='center')
 
         # Add main text to the image
-        draw.text(position, text=new_text, font=quote_font, fill=(255, 255, 255, 255), anchor='mm', align='center')
+        draw.text(position, text=new_text, font=quote_font, fill=TEXT_COLOR, anchor='mm', align='center')
 
         if author_text:
-            # Exact line height and offset math from your original program
+            # Dynamic height calculation
             num_of_lines = new_text.count("\n") + 1
-            line_height = 55     
-            text_height = line_height * num_of_lines + 40
+            text_height = (LINE_HEIGHT * num_of_lines) + AUTHOR_OFFSET_BASE
             
             author_position = (position[0], position[1] + text_height)
+            
             # Draw author exactly as the name (no hyphens)
-            draw.text(author_position, text=author_text, font=author_font, fill=(255, 255, 255, 255), anchor='mm', align='center')
+            draw.text(author_position, text=author_text, font=author_font, fill=TEXT_COLOR, anchor='mm', align='center')
 
         # Convert back to RGB to save as JPEG
         final_img = img.convert("RGB")
@@ -113,6 +142,26 @@ class QuoteMaker(commands.Cog):
         final_img.save(buffer, format="JPEG")
         buffer.seek(0)
         return buffer
+
+    # --- AUTOCOMPLETE FUNCTION ---
+    async def template_autocomplete(self, interaction: discord.Interaction, current: str) -> list[app_commands.Choice[str]]:
+        """Fetches templates from the database and filters them as the user types."""
+        templates = await DatabaseController.get_all_quote_templates()
+        if not templates:
+            return []
+
+        choices =[]
+        for t in templates:
+            db_name = t[0]  # e.g., 'karl_marx'
+            pretty_name = display_name(db_name)  # e.g., 'Karl Marx'
+            
+            # Match user input against both the display name and DB name
+            if current.lower() in pretty_name.lower() or current.lower() in db_name:
+                # The user sees the pretty_name, but the bot receives the db_name as the value
+                choices.append(app_commands.Choice(name=pretty_name, value=db_name))
+
+        # Discord limits autocomplete options to 25 items maximum
+        return choices[:25]
 
     @app_commands.command(name="quoteadd", description="Add a new quote background template.")
     @app_commands.describe(name="Name for this template (e.g. Karl Marx)", photo="The background image to crop and save")
@@ -152,7 +201,8 @@ class QuoteMaker(commands.Cog):
         await interaction.response.send_message(embed=embed)
 
     @app_commands.command(name="quotegen", description="Generate a quote image.")
-    @app_commands.describe(name="The template name (use /quotelist)", quote="The quote text")
+    @app_commands.describe(name="The template name (start typing to search)", quote="The quote text")
+    @app_commands.autocomplete(name=template_autocomplete)  # <--- LINKED AUTOCOMPLETE HERE
     async def quotegen(self, interaction: discord.Interaction, name: str, quote: str):
         # Allow user to type "Karl Marx", "karl marx", or "karl_marx"
         db_name = clean_name(name)
