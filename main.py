@@ -12,8 +12,11 @@ class MutualAidBot(commands.Bot):
     def __init__(self):
         super().__init__(command_prefix="!", intents=discord.Intents.default())
 
+    async def setup_hook(self):
+        
         await DatabaseController.setup()
         
+        # 2. Load Cogs (Modular files)
         await self.load_extension("cogs.admin")
         await self.load_extension("cogs.mutual_aid")
         await self.load_extension("cogs.reminders")
