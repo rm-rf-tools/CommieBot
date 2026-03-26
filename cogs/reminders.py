@@ -1,8 +1,7 @@
-# cogs/reminders.py
 import discord
 from discord.ext import commands, tasks
 from database import DatabaseController
-from cogs.mutual_aid import ContributionView  # Import the button widget!
+from cogs.mutual_aid import ContributionView  
 
 class RemindersCog(commands.Cog):
     def __init__(self, bot):
@@ -18,7 +17,6 @@ class RemindersCog(commands.Cog):
         
         due_aids = await DatabaseController.get_due_reminders()
         for aid in due_aids:
-            # We map reason to description locally here
             aid_id, guild_id, channel_id, user_id, req_amount, rec_amount, description = aid
             
             channel = self.bot.get_channel(int(channel_id))
@@ -36,7 +34,6 @@ class RemindersCog(commands.Cog):
                 embed.set_footer(text=f"Click the button below or use /sendaid {aid_id} <amount> to contribute!")
                 
                 try:
-                    # Attach the view=ContributionView() to add the button
                     await channel.send(
                         content=f"{role_ping} A community member is still looking for mutual aid!", 
                         embed=embed,

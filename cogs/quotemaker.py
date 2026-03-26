@@ -189,13 +189,13 @@ class FadeLayout:
             total_h = q_h + FADE_AUTHOR_OFFSET + a_h
             
             if total_h <= max_h:
-                # We found the perfect size!
+                # perfect size!
                 quote_font = q_font
                 wrapped_quote = test_wrapped
                 quote_h = q_h
                 break
 
-        # 4. Calculate Final Alignment Coordinates
+        # Calculate Alignment
         a_bbox = draw.textbbox((0, 0), author_text, font=author_font)
         a_h = a_bbox[3] - a_bbox[1]
         final_total_h = quote_h + FADE_AUTHOR_OFFSET + a_h
@@ -204,7 +204,6 @@ class FadeLayout:
         line_x = FADE_MARGIN_LEFT
         text_x = FADE_MARGIN_LEFT + FADE_TEXT_PADDING
 
-        # 5. Draw Elements
         # Vertical Line
         draw.line([(line_x, start_y + 10), (line_x, start_y + quote_h - 10)], fill=FADE_LINE_COLOR, width=FADE_LINE_WIDTH)
         
@@ -220,7 +219,6 @@ class FadeLayout:
         # Author Text
         draw.text((text_x, start_y + quote_h + FADE_AUTHOR_OFFSET), author_text, font=author_font, fill=FADE_TEXT_COLOR, align='left')
 
-        # Export
         return export_image(img)
 
 def export_image(img: Image.Image) -> io.BytesIO:

@@ -1,4 +1,3 @@
-# cogs/mutual_aid.py
 import discord
 from discord import app_commands
 from discord.ext import commands
@@ -6,7 +5,7 @@ import re
 from database import DatabaseController
 
 class ContributeModal(discord.ui.Modal, title='Log Contribution'):
-    # This generates a text input inside the popup
+    # Input popup
     amount_input = discord.ui.TextInput(
         label='Amount Sent ($)',
         placeholder='e.g. 15.50',
@@ -20,7 +19,6 @@ class ContributeModal(discord.ui.Modal, title='Log Contribution'):
 
     async def on_submit(self, interaction: discord.Interaction):
         try:
-            # Safely strip out the $ symbol if a user types it
             clean_amount = self.amount_input.value.strip().replace('$', '')
             amount = float(clean_amount)
         except ValueError:
@@ -84,7 +82,7 @@ class MutualAidCommands(commands.Cog):
         embed = discord.Embed(title=f"New Mutual Aid Request (ID: {aid_id})", color=discord.Color.blue())
         embed.add_field(name="Requester", value=interaction.user.mention, inline=False)
         embed.add_field(name="Goal", value=f"${amount:.2f}", inline=True)
-        embed.add_field(name="Description", value=description, inline=False) # Changed from Reason
+        embed.add_field(name="Description", value=description, inline=False)
         embed.set_footer(text=f"Click the button below or use /sendaid {aid_id} <amount> to contribute!")
         # Attach the persistent view (the button) AND force the role ping
         await interaction.response.send_message(
@@ -93,11 +91,10 @@ class MutualAidCommands(commands.Cog):
             view=ContributionView(),
             allowed_mentions=discord.AllowedMentions(roles=True)
         )
-    # We keep /sendaid so people who prefer commands can still use it!
+
     @app_commands.command(name="sendaid", description="Log a contribution to an active aid request.")
     @app_commands.describe(aid_id="The ID of the aid event", amount="The amount you sent")
     async def sendaid(self, interaction: discord.Interaction, aid_id: int, amount: float):
-        # We can just reuse the modal's logic by manually feeding it
         modal = ContributeModal(aid_id=aid_id)
         modal.amount_input.value = str(amount)
         await modal.on_submit(interaction)
@@ -123,6 +120,5 @@ class MutualAidCommands(commands.Cog):
         await interaction.response.send_message(embed=embed)
 
 async def setup(bot):
-    # This registers the View on boot so that buttons on OLD messages still work!
     bot.add_view(ContributionView())
     await bot.add_cog(MutualAidCommands(bot))

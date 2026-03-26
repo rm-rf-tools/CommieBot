@@ -1,10 +1,10 @@
-# cogs/test.py
+
 import discord
 from discord import app_commands
 from discord.ext import commands
 from typing import Literal
 from database import DatabaseController
-from cogs.mutual_aid import ContributionView  # Import the interactive button!
+from cogs.mutual_aid import ContributionView 
 
 class TestCog(commands.Cog):
     def __init__(self, bot):
@@ -25,13 +25,12 @@ class TestCog(commands.Cog):
             if not aid:
                 return await interaction.response.send_message(f"❌ Could not find an active aid request with ID `{aid_id}`.", ephemeral=True)
             
-            # Map database columns to local variables
+            
             fetched_id, guild_id, channel_id, user_id, req_amount, rec_amount, description = aid
             
             role_id = await DatabaseController.get_role(guild_id)
             role_ping = f"<@&{role_id}>" if role_id else ""
             
-            # Build the test reminder embed
             embed = discord.Embed(
                 title=f"🧪 TEST 24h Reminder: Aid Request #{aid_id}", 
                 color=discord.Color.purple()
@@ -41,7 +40,6 @@ class TestCog(commands.Cog):
             embed.add_field(name="Description", value=description, inline=False)
             embed.set_footer(text=f"Click the button below or use /sendaid {aid_id} <amount> to contribute!")
 
-            # We use interaction.response so it replies directly to the person running the test command
             await interaction.response.send_message(
                 content=f"*(Test Mode)* {role_ping} A community member is still looking for mutual aid!",
                 embed=embed,
