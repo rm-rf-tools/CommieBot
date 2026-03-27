@@ -5,12 +5,20 @@ import re
 from database import DatabaseController
 
 class ContributeModal(discord.ui.Modal, title='Log Contribution'):
-    # Input popup
     amount_input = discord.ui.TextInput(
         label='Amount Sent ($)',
         placeholder='e.g. 15.50',
         style=discord.TextStyle.short,
         required=True
+    )
+    
+    # "Checkbox" workaround using text input
+    anon_input = discord.ui.TextInput(
+        label='Log Anonymously? (Optional)',
+        placeholder='Type "yes" to hide your name',
+        style=discord.TextStyle.short,
+        required=False,
+        max_length=3
     )
 
     def __init__(self, aid_id: int):
@@ -27,6 +35,10 @@ class ContributeModal(discord.ui.Modal, title='Log Contribution'):
         if amount <= 0:
             return await interaction.response.send_message("❌ Amount must be greater than 0.", ephemeral=True)
 
+        # Check if they want to be anonymous
+        is_anonymous = self.anon_input.value.lower().strip() == "yes"
+        contributor_display = "An anonymous donor" if is_anonymous else interaction.user.mention
+
         row = await DatabaseController.get_active_aid(self.aid_id, str(interaction.guild_id))
         if not row:
             return await interaction.response.send_message(f"❌ No active aid request found with ID `{self.aid_id}`.", ephemeral=True)
@@ -34,15 +46,20 @@ class ContributeModal(discord.ui.Modal, title='Log Contribution'):
         req_amount, rec_amount, target_user_id = row
         new_total = rec_amount + amount
 
+        # Logic for message and database
         if new_total >= req_amount:
+            # We still pass the real user ID to the database for records, 
+            # but use the display name for the public message
             await DatabaseController.update_aid_progress(self.aid_id, new_total, status='completed')
             await interaction.response.send_message(
-                f"🎉 **GOAL REACHED!** Aid request **#{self.aid_id}** for <@{target_user_id}> has reached its goal of ${req_amount:.2f} and has been removed from the queue! (Total raised: ${new_total:.2f})"
+                f"🎉 **GOAL REACHED!** {contributor_display} logged ${amount:.2f}. "
+                f"Aid request **#{self.aid_id}** for <@{target_user_id}> is complete! (Total: ${new_total:.2f})"
             )
         else:
             await DatabaseController.update_aid_progress(self.aid_id, new_total)
             await interaction.response.send_message(
-                f"✅ Thank you! You logged a sent amount of ${amount:.2f} to aid **#{self.aid_id}**. Current progress: **${new_total:.2f} / ${req_amount:.2f}**."
+                f"✅ Thank you! {contributor_display} logged a contribution of ${amount:.2f} to aid **#{self.aid_id}**. "
+                f"Current progress: **${new_total:.2f} / ${req_amount:.2f}**."
             )
 
 class ContributionView(discord.ui.View):
@@ -93,10 +110,21 @@ class MutualAidCommands(commands.Cog):
         )
 
     @app_commands.command(name="sendaid", description="Log a contribution to an active aid request.")
-    @app_commands.describe(aid_id="The ID of the aid event", amount="The amount you sent")
-    async def sendaid(self, interaction: discord.Interaction, aid_id: int, amount: float):
+    @app_commands.describe(
+        aid_id="The ID of the aid event", 
+        amount="The amount you sent",
+        anonymous="Hide your name from the progress message?"
+    )
+    async def sendaid(self, interaction: discord.Interaction, aid_id: int, amount: float, anonymous: bool = False):
+        # We manually trigger the logic without opening the modal since we have the data
         modal = ContributeModal(aid_id=aid_id)
+        
+        # Populate the "internal" modal values manually
         modal.amount_input.value = str(amount)
+        if anonymous:
+            modal.anon_input.value = "yes"
+        
+        # Run the submission logic
         await modal.on_submit(interaction)
 
     @app_commands.command(name="listaids", description="List all active mutual aid requests.")
