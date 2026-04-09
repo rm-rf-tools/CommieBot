@@ -27,6 +27,17 @@ class DatabaseController:
                     status TEXT DEFAULT 'active'
                 )
             ''')
+            await db.execute('''
+                CREATE TABLE IF NOT EXISTS committee_assignments (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    guild_id TEXT,
+                    user_id TEXT,
+                    committee_name TEXT,
+                    role_type TEXT,
+                    UNIQUE(guild_id, user_id, committee_name, role_type)
+                )
+            ''')
+            await db.commit()
             # NEW: Quote Templates table
             await db.execute('''
                 CREATE TABLE IF NOT EXISTS quote_templates (
@@ -164,3 +175,21 @@ class DatabaseController:
                 FROM aids WHERE id = ? AND status = 'active' AND (guild_id = ? OR guild_id IS NULL)
             ''', (aid_id, guild_id)) as cursor:
                 return await cursor.fetchone()
+                
+    @staticmethod
+    async def get_user_committee_roles(guild_id: str, user_id: str):
+        async with aiosqlite.connect(DB_PATH) as db:
+            async with db.execute('SELECT committee_name, role_type FROM committee_assignments WHERE guild_id = ? AND user_id = ?', (guild_id, user_id)) as cursor:
+                return await cursor.fetchall()
+
+    @staticmethod
+    async def assign_committee_role(guild_id: str, user_id: str, committee_name: str, role_type: str):
+        async with aiosqlite.connect(DB_PATH) as db:
+            await db.execute('INSERT OR IGNORE INTO committee_assignments (guild_id, user_id, committee_name, role_type) VALUES (?, ?, ?, ?)', (guild_id, user_id, committee_name, role_type))
+            await db.commit()
+
+    @staticmethod
+    async def get_committee_members(guild_id: str, committee_name: str):
+        async with aiosqlite.connect(DB_PATH) as db:
+            async with db.execute('SELECT user_id, role_type FROM committee_assignments WHERE guild_id = ? AND LOWER(committee_name) = ?', (guild_id, committee_name.lower())) as cursor:
+                return await cursor.fetchall()
