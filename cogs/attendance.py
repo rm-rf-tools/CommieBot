@@ -6,11 +6,10 @@ import datetime
 class AttendanceCog(commands.Cog):
     def __init__(self, bot):
         self.bot = bot
-        self.db_path = "org_database.db" # Point this to your SQLite file
+        self.db_path = "mutual_aid.db"
 
     @commands.command(name="attendance", help="Takes attendance for your current voice channel. Usage: !attendance <event_id>")
     async def take_attendance(self, ctx, event_id: int):
-        # 1. Ensure the person running the command is actually in a Voice Channel
         if not ctx.author.voice or not ctx.author.voice.channel:
             await ctx.send("❌ You need to be in a voice channel to take attendance!")
             return
@@ -22,12 +21,12 @@ class AttendanceCog(commands.Cog):
             await ctx.send("The voice channel is empty!")
             return
 
-        # 2. Connect to the database and log attendance
+        
         checked_in_count = 0
         now = datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S')
 
         async with aiosqlite.connect(self.db_path) as db:
-            # Optional: Check if the event actually exists first
+           
             async with db.execute("SELECT id FROM events WHERE id = ?", (event_id,)) as cursor:
                 if not await cursor.fetchone():
                     await ctx.send(f"❌ Event ID `{event_id}` does not exist in the database.")
@@ -35,10 +34,9 @@ class AttendanceCog(commands.Cog):
 
             for member in members_in_vc:
                 if member.bot:
-                    continue  # We don't track bot attendance
+                    continue  
 
-                # Use INSERT OR REPLACE (SQLite) or UPSERT (Postgres) to avoid crashing if they already RSVP'd
-                # This updates their status to 'Attended' and stamps the check-in time
+
                 await db.execute("""
                     INSERT INTO event_attendance (event_id, member_id, attendance_status, check_in_time)
                     VALUES (?, ?, 'Attended', ?)

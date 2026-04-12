@@ -46,3 +46,4 @@
 
 **Attendance (WIP)**
 * `/attendance` <event_id>
+

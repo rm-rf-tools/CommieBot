@@ -13,7 +13,7 @@ class ContributeModal(discord.ui.Modal, title='Log Contribution'):
         required=True
     )
     
-    # "Checkbox" workaround using text input
+
     anon_input = discord.ui.TextInput(
         label='Log Anonymously? (Optional)',
         placeholder='Type "yes" to hide your name',
@@ -36,7 +36,6 @@ class ContributeModal(discord.ui.Modal, title='Log Contribution'):
         if amount <= 0:
             return await interaction.response.send_message("❌ Amount must be greater than 0.", ephemeral=True)
 
-        # Check if they want to be anonymous
         is_anonymous = self.anon_input.value.lower().strip() == "yes"
         contributor_display = "An anonymous donor" if is_anonymous else interaction.user.mention
 
@@ -47,10 +46,8 @@ class ContributeModal(discord.ui.Modal, title='Log Contribution'):
         req_amount, rec_amount, target_user_id = row
         new_total = rec_amount + amount
 
-        # Logic for message and database
         if new_total >= req_amount:
-            # We still pass the real user ID to the database for records, 
-            # but use the display name for the public message
+
             await DatabaseController.update_aid_progress(self.aid_id, new_total, status='completed')
             await interaction.response.send_message(
                 f"🎉 **GOAL REACHED!** {contributor_display} logged ${amount:.2f}. "
@@ -65,11 +62,11 @@ class ContributeModal(discord.ui.Modal, title='Log Contribution'):
 
 class ContributionView(discord.ui.View):
     def __init__(self):
-        super().__init__(timeout=None) # timeout=None makes the button persistent across bot restarts!
+        super().__init__(timeout=None) 
 
     @discord.ui.button(label="💸 Log Contribution", style=discord.ButtonStyle.success, custom_id="persistent_contribute_btn")
     async def contribute_button(self, interaction: discord.Interaction, button: discord.ui.Button):
-        # Read the Aid ID directly from the text of the embed they clicked on
+        
         embed = interaction.message.embeds[0]
         match = re.search(r'(?:ID:\s*|#)(\d+)', embed.title)
         
@@ -77,7 +74,6 @@ class ContributionView(discord.ui.View):
             return await interaction.response.send_message("❌ Could not determine the Aid ID from this message.", ephemeral=True)
         
         aid_id = int(match.group(1))
-        # Launch the popup modal
         await interaction.response.send_modal(ContributeModal(aid_id=aid_id))
 
 class MutualAidCommands(commands.Cog):
@@ -102,7 +98,6 @@ class MutualAidCommands(commands.Cog):
         embed.add_field(name="Goal", value=f"${amount:.2f}", inline=True)
         embed.add_field(name="Description", value=description, inline=False)
         embed.set_footer(text=f"Click the button below or use /sendaid {aid_id} <amount> to contribute!")
-        # Attach the persistent view (the button) AND force the role ping
         await interaction.response.send_message(
             content=role_ping, 
             embed=embed, 
@@ -117,15 +112,12 @@ class MutualAidCommands(commands.Cog):
         anonymous="Hide your name from the progress message?"
     )
     async def sendaid(self, interaction: discord.Interaction, aid_id: int, amount: float, anonymous: bool = False):
-        # We manually trigger the logic without opening the modal since we have the data
         modal = ContributeModal(aid_id=aid_id)
         
-        # Populate the "internal" modal values manually
         modal.amount_input.value = str(amount)
         if anonymous:
             modal.anon_input.value = "yes"
         
-        # Run the submission logic
         await modal.on_submit(interaction)
 
     @app_commands.command(name="listaids", description="List all active mutual aid requests.")

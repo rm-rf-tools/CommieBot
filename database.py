@@ -9,7 +9,13 @@ class DatabaseController:
     async def setup():
         os.makedirs(os.path.dirname(DB_PATH), exist_ok=True)
         async with aiosqlite.connect(DB_PATH) as db:
-            
+
+            async with db.execute("PRAGMA table_info(server_configs)") as cursor:
+                cols = [c[1] for c in await cursor.fetchall()]
+                if "crp_role_id" not in cols: 
+                    await db.execute("ALTER TABLE server_configs ADD COLUMN crp_role_id TEXT")
+
+
             await db.execute('''
                 CREATE TABLE IF NOT EXISTS server_configs (
                     guild_id TEXT PRIMARY KEY,
@@ -91,9 +97,48 @@ class DatabaseController:
                     await db.execute("ALTER TABLE aids ADD COLUMN created_at INTEGER")
                 if "next_reminder_at" not in columns:
                     await db.execute("ALTER TABLE aids ADD COLUMN next_reminder_at INTEGER")
+            # --- SKILL MATRIX TABLES ---
+
+            await db.execute('''
+                CREATE TABLE IF NOT EXISTS profiles (
+                    guild_id TEXT,
+                    user_id TEXT,
+                    bio TEXT,
+                    PRIMARY KEY (guild_id, user_id)
+                )
+            ''')
+            await db.execute('''
+                CREATE TABLE IF NOT EXISTS skills (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    guild_id TEXT,
+                    name TEXT COLLATE NOCASE,
+                    description TEXT,
+                    is_wanted INTEGER DEFAULT 0,
+                    UNIQUE(guild_id, name)
+                )
+            ''')
+            await db.execute('''
+                CREATE TABLE IF NOT EXISTS profile_skills (
+                    guild_id TEXT,
+                    user_id TEXT,
+                    skill_id INTEGER,
+                    proficiency TEXT,
+                    PRIMARY KEY (guild_id, user_id, skill_id),
+                    FOREIGN KEY (skill_id) REFERENCES skills(id) ON DELETE CASCADE
+                )
+            ''')
             
+            
+            async with db.execute("PRAGMA table_info(skills)") as cursor:
+                columns = [col[1] for col in await cursor.fetchall()]
+                if "description" not in columns:
+                    await db.execute("ALTER TABLE skills ADD COLUMN description TEXT")
+                if "is_wanted" not in columns:
+                    await db.execute("ALTER TABLE skills ADD COLUMN is_wanted INTEGER DEFAULT 0")
+
+
             await db.commit()
-    # --- QUOTE MAKER METHODS ---
+
     @staticmethod
     async def add_quote_template(name: str, file_path: str):
         async with aiosqlite.connect(DB_PATH) as db:
@@ -353,3 +398,154 @@ class DatabaseController:
         async with aiosqlite.connect(DB_PATH) as db:
             async with db.execute("SELECT role_id FROM ticket_staff_roles WHERE guild_id = ?", (guild_id,)) as cursor:
                 return [row[0] for row in await cursor.fetchall()]
+
+    @staticmethod
+    async def set_crp_role(guild_id: str, role_id: str):
+        async with aiosqlite.connect(DB_PATH) as db:
+            await db.execute('''
+                INSERT INTO server_configs (guild_id, crp_role_id) VALUES (?, ?)
+                ON CONFLICT(guild_id) DO UPDATE SET crp_role_id = excluded.crp_role_id
+            ''', (guild_id, role_id))
+            await db.commit()
+
+    @staticmethod
+    async def get_crp_role(guild_id: str):
+        async with aiosqlite.connect(DB_PATH) as db:
+            async with db.execute("SELECT crp_role_id FROM server_configs WHERE guild_id = ?", (guild_id,)) as cursor:
+                row = await cursor.fetchone()
+                return row[0] if row else None
+
+    # --- SKILL MATRIX METHODS ---
+
+    @staticmethod
+    async def is_crp_member(guild_id: str, user_id: str) -> bool:
+        """Checks if a user is in the CRP committee_assignments table"""
+        async with aiosqlite.connect(DB_PATH) as db:
+            async with db.execute('SELECT 1 FROM committee_assignments WHERE guild_id = ? AND user_id = ? LIMIT 1', (guild_id, user_id)) as cursor:
+                return await cursor.fetchone() is not None
+
+    @staticmethod
+    async def create_skill(guild_id: str, name: str, description: str, is_wanted: bool) -> bool:
+        """Creates a global skill. Returns False if it already exists."""
+        wanted_int = 1 if is_wanted else 0
+        async with aiosqlite.connect(DB_PATH) as db:
+            try:
+                await db.execute('INSERT INTO skills (guild_id, name, description, is_wanted) VALUES (?, ?, ?, ?)', 
+                                 (guild_id, name.strip(), description, wanted_int))
+                await db.commit()
+                return True
+            except aiosqlite.IntegrityError:
+                return False # Skill already exists
+
+    @staticmethod
+    async def delete_skill(guild_id: str, name: str) -> bool:
+        """Deletes a skill and removes it from all users."""
+        async with aiosqlite.connect(DB_PATH) as db:
+            async with db.execute('SELECT id FROM skills WHERE guild_id = ? AND name = ? COLLATE NOCASE', (guild_id, name)) as cursor:
+                row = await cursor.fetchone()
+                if not row:
+                    return False
+                skill_id = row[0]
+            
+            
+            await db.execute('DELETE FROM profile_skills WHERE guild_id = ? AND skill_id = ?', (guild_id, skill_id))
+            await db.execute('DELETE FROM skills WHERE id = ?', (skill_id,))
+            await db.commit()
+            return True
+
+    @staticmethod
+    async def get_all_server_skills(guild_id: str):
+        """Returns (id, name, description, is_wanted)"""
+        async with aiosqlite.connect(DB_PATH) as db:
+            async with db.execute('SELECT id, name, description, is_wanted FROM skills WHERE guild_id = ? ORDER BY is_wanted DESC, name ASC', (guild_id,)) as cursor:
+                return await cursor.fetchall()
+
+    @staticmethod
+    async def set_profile_skill(guild_id: str, user_id: str, skill_id: int, proficiency: str):
+        async with aiosqlite.connect(DB_PATH) as db:
+            await db.execute('INSERT OR IGNORE INTO profiles (guild_id, user_id) VALUES (?, ?)', (guild_id, user_id))
+            await db.execute('''
+                INSERT INTO profile_skills (guild_id, user_id, skill_id, proficiency) 
+                VALUES (?, ?, ?, ?)
+                ON CONFLICT(guild_id, user_id, skill_id) DO UPDATE SET proficiency = excluded.proficiency
+            ''', (guild_id, user_id, skill_id, proficiency))
+            await db.commit()
+
+    @staticmethod
+    async def remove_profile_skill(guild_id: str, user_id: str, skill_id: int):
+        async with aiosqlite.connect(DB_PATH) as db:
+            await db.execute('DELETE FROM profile_skills WHERE guild_id = ? AND user_id = ? AND skill_id = ?', (guild_id, user_id, skill_id))
+            await db.commit()
+
+    @staticmethod
+    async def get_user_skills(guild_id: str, user_id: str):
+        async with aiosqlite.connect(DB_PATH) as db:
+            async with db.execute('''
+                SELECT s.name, ps.proficiency 
+                FROM profile_skills ps
+                JOIN skills s ON ps.skill_id = s.id
+                WHERE ps.guild_id = ? AND ps.user_id = ?
+                ORDER BY s.name ASC
+            ''', (guild_id, user_id)) as cursor:
+                return await cursor.fetchall()
+
+    @staticmethod
+    async def get_users_by_skill(guild_id: str, skill_id: int):
+        async with aiosqlite.connect(DB_PATH) as db:
+            async with db.execute('''
+                SELECT user_id, proficiency 
+                FROM profile_skills 
+                WHERE guild_id = ? AND skill_id = ?
+            ''', (guild_id, skill_id)) as cursor:
+                return await cursor.fetchall()
+
+    @staticmethod
+    async def edit_skill(guild_id: str, name: str, description: str, is_wanted: bool) -> bool:
+        """Edits an existing skill's description and wanted status. Returns False if not found."""
+        wanted_int = 1 if is_wanted else 0
+        async with aiosqlite.connect(DB_PATH) as db:
+            cursor = await db.execute('''
+                UPDATE skills 
+                SET description = ?, is_wanted = ? 
+                WHERE guild_id = ? AND name = ? COLLATE NOCASE
+            ''', (description, wanted_int, guild_id, name))
+            await db.commit()
+            return cursor.rowcount > 0
+            
+    @staticmethod
+    async def get_skill_tree(guild_id: str):
+        """Returns all skills and the members attached to them for the tree command"""
+        async with aiosqlite.connect(DB_PATH) as db:
+            async with db.execute('''
+                SELECT s.name, s.is_wanted, ps.user_id, ps.proficiency 
+                FROM skills s
+                LEFT JOIN profile_skills ps ON s.id = ps.skill_id
+                WHERE s.guild_id = ?
+                ORDER BY s.is_wanted DESC, s.name ASC, ps.proficiency DESC
+            ''', (guild_id,)) as cursor:
+                return await cursor.fetchall()
+
+    @staticmethod
+    async def update_skill_by_id(guild_id: str, skill_id: int, new_name: str, new_desc: str, is_wanted: bool) -> bool:
+        """Edits an existing skill's name, description, and wanted status using its ID."""
+        wanted_int = 1 if is_wanted else 0
+        async with aiosqlite.connect(DB_PATH) as db:
+            try:
+                cursor = await db.execute('''
+                    UPDATE skills 
+                    SET name = ?, description = ?, is_wanted = ? 
+                    WHERE guild_id = ? AND id = ?
+                ''', (new_name.strip(), new_desc, wanted_int, guild_id, skill_id))
+                await db.commit()
+                return cursor.rowcount > 0
+            except aiosqlite.IntegrityError:
+                return False # Fails if the new name already exists for another skill
+
+    @staticmethod
+    async def delete_skill_by_id(guild_id: str, skill_id: int) -> bool:
+        """Deletes a skill by ID and removes it from all users."""
+        async with aiosqlite.connect(DB_PATH) as db:
+            await db.execute('DELETE FROM profile_skills WHERE guild_id = ? AND skill_id = ?', (guild_id, skill_id))
+            cursor = await db.execute('DELETE FROM skills WHERE id = ? AND guild_id = ?', (skill_id, guild_id))
+            await db.commit()
+            return cursor.rowcount > 0

@@ -7,7 +7,7 @@ from enum import Enum
 
 from database import DatabaseController
 
-# --- PYDANTIC MODELS (Logic & Limits) ---
+
 class RoleType(str, Enum):
     CHAIRMAN = "chairman"
     EXECUTOR = "executor"
@@ -52,17 +52,32 @@ class MemberRoles(BaseModel):
             seen.add(identifier)
         return v
 
-# --- DISCORD COG ---
+
+async def has_crp_permissions(interaction: discord.Interaction) -> bool:
+    if interaction.user.guild_permissions.administrator:
+        return True
+    
+    role_id = await DatabaseController.get_crp_role(str(interaction.guild_id))
+    if not role_id:
+
+        return False
+        
+    user_role_ids = [str(r.id) for r in interaction.user.roles]
+    return role_id in user_role_ids
+
+
 class CRPCog(commands.GroupCog, name="crp"):
     def __init__(self, bot):
         self.bot = bot
         super().__init__()
 
-    # Create the Sub-Groups
-    committee_group = app_commands.Group(name="committee", description="Committee management commands")
-    role_group = app_commands.Group(name="role", description="Role management commands")
 
-    # Autocomplete Helper
+    async def interaction_check(self, interaction: discord.Interaction) -> bool:
+        if not await has_crp_permissions(interaction):
+            raise app_commands.CheckFailure()
+        await interaction.response.defer(ephemeral=True)
+        return True
+    
     async def committee_autocomplete(self, interaction: discord.Interaction, current: str) -> List[app_commands.Choice[str]]:
         committees = await DatabaseController.get_all_committees(str(interaction.guild_id))
         return [
@@ -70,49 +85,51 @@ class CRPCog(commands.GroupCog, name="crp"):
             for c in committees if current.lower() in c[1].lower()
         ][:25]
 
-    # ==========================================
-    # --- COMMITTEE COMMANDS (/crp committee ...)
-    # ==========================================
+    # Subgroups
+    committee_group = app_commands.Group(name="committee", description="Committee management commands")
+    role_group = app_commands.Group(name="role", description="Role management commands")
+
+
+    # --- COMMITTEE COMMANDS 
 
     @committee_group.command(name="create", description="Create a new committee.")
     async def comm_create(self, interaction: discord.Interaction, name: str, description: str = "No description"):
         cid = await DatabaseController.create_committee(str(interaction.guild_id), name, description)
         if not cid:
-            return await interaction.response.send_message(f"⚠️ A committee named **{name}** already exists!")
-        await interaction.response.send_message(f"✅ Created the **{name}** committee!")
+            return await interaction.followup.send(f"⚠️ A committee named **{name}** already exists!")
+        await interaction.followup.send(f"✅ Created the **{name}** committee!")
 
     @committee_group.command(name="edit", description="Rename an existing committee.")
     @app_commands.autocomplete(old_name=committee_autocomplete)
     async def comm_edit(self, interaction: discord.Interaction, old_name: str, new_name: str):
         c = await DatabaseController.get_committee_by_name(str(interaction.guild_id), old_name)
         if not c:
-            return await interaction.response.send_message("❌ Committee not found.")
+            return await interaction.followup.send("❌ Committee not found.")
         await DatabaseController.update_committee_name(str(interaction.guild_id), c[0], new_name)
-        await interaction.response.send_message(f"✅ Renamed **{old_name}** to **{new_name}**.")
+        await interaction.followup.send(f"✅ Renamed **{old_name}** to **{new_name}**.")
 
-    @committee_group.command(name="remove", description="Delete a committee (Yoinks all roles inside it).")
+    @committee_group.command(name="remove", description="Delete a committee.")
     @app_commands.autocomplete(name=committee_autocomplete)
     async def comm_remove(self, interaction: discord.Interaction, name: str):
         c = await DatabaseController.get_committee_by_name(str(interaction.guild_id), name)
         if not c:
-            return await interaction.response.send_message("❌ Committee not found.")
+            return await interaction.followup.send("❌ Committee not found.")
         await DatabaseController.delete_committee(str(interaction.guild_id), c[0])
-        await interaction.response.send_message(f"🗑️ Deleted **{name}**. All associated roles have been yoinked.")
+        await interaction.followup.send(f"🗑️ Deleted **{name}**.")
 
-    @committee_group.command(name="list", description="List all committees in the server.")
+    @committee_group.command(name="list", description="List all committees.")
     async def comm_list(self, interaction: discord.Interaction):
         comms = await DatabaseController.get_all_committees(str(interaction.guild_id))
         if not comms:
-            return await interaction.response.send_message("🔍 No committees found.")
+            return await interaction.followup.send("🔍 No committees found.")
         
         embed = discord.Embed(title="Server Committees", color=discord.Color.blue())
         for _, name, desc in comms:
-            embed.add_field(name=name, value=desc, inline=False)
-        await interaction.response.send_message(embed=embed)
+            embed.add_field(name=name, value=desc[:50]+"...", inline=False)
+        await interaction.followup.send(embed=embed)
 
-    # ==========================================
-    # --- ROLE COMMANDS (/crp role ...)
-    # ==========================================
+    # --- ROLE COMMANDS
+
 
     @role_group.command(name="assign", description="Assign a role to a member.")
     @app_commands.autocomplete(committee_name=committee_autocomplete)
@@ -124,15 +141,14 @@ class CRPCog(commands.GroupCog, name="crp"):
 
         if rtype in COMMITTEE_ROLES:
             if not committee_name:
-                return await interaction.response.send_message(f"❌ Role **{role.name}** requires a committee!")
+                return await interaction.followup.send(f"❌ Role **{role.name}** requires a committee!")
             c = await DatabaseController.get_committee_by_name(guild_id, committee_name)
             if not c:
-                return await interaction.response.send_message(f"❌ Committee **{committee_name}** does not exist.")
+                return await interaction.followup.send(f"❌ Committee **{committee_name}** does not exist.")
             cid, final_name = c[0], c[1]
         elif committee_name:
-            return await interaction.response.send_message(f"ℹ️ **{role.name}** is a Global role. Leave committee blank.")
+            return await interaction.followup.send(f"ℹ️ **{role.name}** is a Global role. Leave committee blank.")
 
-        # Validation
         cur_rows = await DatabaseController.get_user_committee_roles(guild_id, user_id)
         assigns = [{"committee_name": r[0], "role": r[1]} for r in cur_rows]
         assigns.append({"committee_name": final_name, "role": rtype})
@@ -140,12 +156,12 @@ class CRPCog(commands.GroupCog, name="crp"):
         try:
             MemberRoles(user_id=user_id, assignments=assigns)
         except ValidationError as e:
-            return await interaction.response.send_message(f"⚠️ {e.errors()[0]['msg']}")
+            return await interaction.followup.send(f"⚠️ {e.errors()[0]['msg']}")
 
         await DatabaseController.assign_committee_role(guild_id, user_id, cid, rtype.value)
-        await interaction.response.send_message(f"✅ Assigned {target.mention} as **{role.name}** ({final_name}).")
+        await interaction.followup.send(f"✅ Assigned {target.mention} as **{role.name}** ({final_name}).")
 
-    @role_group.command(name="remove", description="Yoink a specific role from a user.")
+    @role_group.command(name="remove", description="Yoink a specific role.")
     @app_commands.autocomplete(committee_name=committee_autocomplete)
     @app_commands.choices(role=[app_commands.Choice(name=r.title(), value=r) for r in ROLE_WEIGHT.keys()])
     async def role_remove(self, interaction: discord.Interaction, target: discord.Member, role: app_commands.Choice[str], committee_name: Optional[str] = None):
@@ -154,44 +170,44 @@ class CRPCog(commands.GroupCog, name="crp"):
             c = await DatabaseController.get_committee_by_name(str(interaction.guild_id), committee_name)
             if c: cid = c[0]
         await DatabaseController.remove_assignment(str(interaction.guild_id), str(target.id), cid, role.value)
-        await interaction.response.send_message(f"✅ Yoinked **{role.name}** from {target.mention}.")
+        await interaction.followup.send(f"✅ Yoinked **{role.name}** from {target.mention}.")
 
     @role_group.command(name="view", description="View a member's current roles.")
     async def role_view(self, interaction: discord.Interaction, target: discord.Member = None):
         target = target or interaction.user
         rows = await DatabaseController.get_user_committee_roles(str(interaction.guild_id), str(target.id))
         if not rows:
-            return await interaction.response.send_message(f"🔍 {target.display_name} has no roles.")
+            return await interaction.followup.send(f"🔍 {target.display_name} has no roles.")
 
         embed = discord.Embed(title=f"Roles: {target.display_name}", color=discord.Color.blue())
         for cname, rtype in rows:
             embed.add_field(name=cname, value=rtype.title(), inline=False)
-        await interaction.response.send_message(embed=embed)
+        await interaction.followup.send(embed=embed)
 
-    @role_group.command(name="list", description="List members in a specific committee.")
+    @role_group.command(name="list", description="List members in a committee.")
     @app_commands.autocomplete(committee_name=committee_autocomplete)
     async def role_list(self, interaction: discord.Interaction, committee_name: str):
         c = await DatabaseController.get_committee_by_name(str(interaction.guild_id), committee_name)
         if not c:
-            return await interaction.response.send_message("❌ Committee not found.")
+            return await interaction.followup.send("❌ Committee not found.")
         
         rows = await DatabaseController.get_committee_members(str(interaction.guild_id), c[0])
         if not rows:
-            return await interaction.response.send_message(f"🔍 No members in **{committee_name}**.")
+            return await interaction.followup.send(f"🔍 No members in **{committee_name}**.")
 
         sorted_rows = sorted(rows, key=lambda x: ROLE_WEIGHT.get(x[1].lower(), 99))
         embed = discord.Embed(title=f"🏛️ {committee_name.title()} Members", color=discord.Color.gold())
         rd = {}
         for uid, rt in sorted_rows: rd.setdefault(rt, []).append(f"<@{uid}>")
         for rt, mems in rd.items(): embed.add_field(name=rt.title(), value="\n".join(mems), inline=False)
-        await interaction.response.send_message(embed=embed)
+        await interaction.followup.send(embed=embed)
 
     @role_group.command(name="listall", description="Full Org Hierarchy (Silent).")
     async def role_listall(self, interaction: discord.Interaction):
-        await interaction.response.defer()
+        
         rows = await DatabaseController.get_all_org_members(str(interaction.guild_id))
         if not rows:
-            return await interaction.response.send_message("🔍 Org is empty.")
+            return await interaction.followup.send("🔍 Org is empty.")
 
         sorted_rows = sorted(rows, key=lambda x: ROLE_WEIGHT.get(x[1].lower(), 99))
         embed = discord.Embed(title="🏛️ Full Org Hierarchy", color=discord.Color.purple())

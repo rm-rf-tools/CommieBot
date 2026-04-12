@@ -19,7 +19,7 @@ class TestCog(commands.Cog):
 
         # --- ACTION: REMINDER ---
         if action == "reminder":
-            # Fetch full details of the specific aid request
+            
             aid = await DatabaseController.get_aid_by_id(aid_id, str(interaction.guild_id))
             
             if not aid:

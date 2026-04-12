@@ -1,7 +1,7 @@
-# main.py
 import os
 import discord
 from discord.ext import commands
+from discord import app_commands
 from dotenv import load_dotenv
 from database import DatabaseController
 
@@ -13,10 +13,8 @@ class MutualAidBot(commands.Bot):
         super().__init__(command_prefix="!", intents=discord.Intents.default())
 
     async def setup_hook(self):
-        
         await DatabaseController.setup()
         
-        # 2. Load Cogs (Modular files)
         await self.load_extension("cogs.admin")
         await self.load_extension("cogs.mutual_aid")
         await self.load_extension("cogs.reminders")
@@ -25,8 +23,7 @@ class MutualAidBot(commands.Bot):
         await self.load_extension("cogs.attendance")
         await self.load_extension("cogs.crp")
         await self.load_extension("cogs.tickets")
-
-        # 3. Sync Slash Commands
+        await self.load_extension("cogs.skills") 
         await self.tree.sync()
         print("Slash commands synced and database initialized.")
 
@@ -35,15 +32,22 @@ class MutualAidBot(commands.Bot):
         print('------')
 
 client = MutualAidBot()
-
+        
 @client.tree.error
 async def on_app_command_error(interaction: discord.Interaction, error: discord.app_commands.AppCommandError):
-    if isinstance(error, discord.app_commands.MissingPermissions):
-        await interaction.response.send_message("❌ You don't have permission to use this command.", ephemeral=True)
-    else:
-        print(f"Error: {error}")
-        if not interaction.response.is_done():
+    if isinstance(error, app_commands.CheckFailure):
+        return await interaction.response.send_message("❌ You do not have the required role to use this command.", ephemeral=True)
+
+
+    if isinstance(error, app_commands.MissingPermissions):
+        return await interaction.response.send_message("❌ You don't have permission to use this command.", ephemeral=True)
+
+    print(f"Error: {error}")
+    if not interaction.response.is_done():
+        try:
             await interaction.response.send_message("❌ An unexpected error occurred.", ephemeral=True)
+        except:
+            pass
 
 if __name__ == '__main__':
     if not TOKEN:

@@ -8,6 +8,13 @@ class AdminCommands(commands.Cog):
     def __init__(self, bot):
         self.bot = bot
 
+    @app_commands.command(name="crprole", description="Set the role allowed to manage committees and roles.")
+    @app_commands.describe(role="The role allowed to use CRP commands")
+    @app_commands.checks.has_permissions(manage_guild=True)
+    async def crprole(self, interaction: discord.Interaction, role: discord.Role):
+        await DatabaseController.set_crp_role(str(interaction.guild_id), str(role.id))
+        await interaction.response.send_message(f"✅ CRP Management role set to {role.mention}.", ephemeral=True)
+
     @app_commands.command(name="aidrole", description="Set the role to ping for new mutual aid requests (Admins).")
     @app_commands.describe(role="The server role to ping")
     @app_commands.checks.has_permissions(manage_guild=True)
