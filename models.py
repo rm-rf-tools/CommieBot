@@ -1,0 +1,84 @@
+from typing import Optional
+from sqlmodel import SQLModel, Field
+from sqlalchemy import UniqueConstraint, Index
+
+class ServerConfig(SQLModel, table=True):
+    __tablename__ = "server_configs"
+    guild_id: str = Field(primary_key=True)
+    role_id: Optional[str] = None
+    crp_role_id: Optional[str] = None
+    ticket_role_id: Optional[str] = None
+
+class Aid(SQLModel, table=True):
+    __tablename__ = "aids"
+    id: Optional[int] = Field(default=None, primary_key=True)
+    guild_id: Optional[str] = None
+    channel_id: Optional[str] = None
+    user_id: Optional[str] = None
+    amount_requested: Optional[float] = None
+    amount_received: float = Field(default=0.0)
+    reason: Optional[str] = None
+    status: str = Field(default="active")
+    created_at: Optional[int] = None
+    next_reminder_at: Optional[int] = None
+
+class Committee(SQLModel, table=True):
+    __tablename__ = "committees"
+    __table_args__ = (UniqueConstraint("guild_id", "name", name="uq_committee_guild_name"),)
+    id: Optional[int] = Field(default=None, primary_key=True)
+    guild_id: Optional[str] = None
+    name: Optional[str] = None
+    description: Optional[str] = None
+
+class CommitteeAssignment(SQLModel, table=True):
+    __tablename__ = "committee_assignments"
+    __table_args__ = (
+        UniqueConstraint("guild_id", "user_id", "committee_id", "role_type", name="uq_committee_assignment"),
+        Index("idx_unique_global_roles", "guild_id", "user_id", "role_type", unique=True, sqlite_where="committee_id IS NULL"),
+    )
+    id: Optional[int] = Field(default=None, primary_key=True)
+    guild_id: Optional[str] = None
+    user_id: Optional[str] = None
+    committee_id: Optional[int] = Field(default=None, foreign_key="committees.id", ondelete="CASCADE")
+    role_type: Optional[str] = None
+
+class QuoteTemplate(SQLModel, table=True):
+    __tablename__ = "quote_templates"
+    name: str = Field(primary_key=True)
+    file_path: Optional[str] = None
+
+class Ticket(SQLModel, table=True):
+    __tablename__ = "tickets"
+    ticket_id: str = Field(primary_key=True)
+    guild_id: Optional[str] = None
+    user_id: Optional[str] = None
+    channel_id: Optional[str] = None
+    status: str = Field(default="active")
+    created_at: Optional[int] = None
+
+class TicketStaffRole(SQLModel, table=True):
+    __tablename__ = "ticket_staff_roles"
+    guild_id: str = Field(primary_key=True)
+    role_id: str = Field(primary_key=True)
+
+class Profile(SQLModel, table=True):
+    __tablename__ = "profiles"
+    guild_id: str = Field(primary_key=True)
+    user_id: str = Field(primary_key=True)
+    bio: Optional[str] = None
+
+class Skill(SQLModel, table=True):
+    __tablename__ = "skills"
+    __table_args__ = (UniqueConstraint("guild_id", "name", name="uq_skill_guild_name"),)
+    id: Optional[int] = Field(default=None, primary_key=True)
+    guild_id: Optional[str] = None
+    name: Optional[str] = None
+    description: Optional[str] = None
+    is_wanted: int = Field(default=0)
+
+class ProfileSkill(SQLModel, table=True):
+    __tablename__ = "profile_skills"
+    guild_id: str = Field(primary_key=True)
+    user_id: str = Field(primary_key=True)
+    skill_id: int = Field(primary_key=True, foreign_key="skills.id", ondelete="CASCADE")
+    proficiency: Optional[str] = None
