@@ -1,8 +1,16 @@
 # CommieBot
 
 ### Requirements
-[docker / docker compose](https://docs.docker.com/engine/install/ubuntu/)
+[Discord Developer Account](https://discord.com/developers/applications)
 
+[Bot Token](https://docs.discord.com/developers/quick-start/getting-started)
+
+[docker / docker compose](https://docs.docker.com/engine/install/ubuntu/)
+```bash
+# Easy Docker Install on Linux/(maybe MacOS) machines:
+curl -fsSL https://get.docker.com -o get-docker.sh
+sudo sh ./get-docker.sh
+```
 ### Deployment
 1. `.env` file: `DISCORD_TOKEN=your_token`
 2. `docker compose up -d --build`
