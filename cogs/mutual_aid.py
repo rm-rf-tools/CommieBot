@@ -1,3 +1,4 @@
+# cogs/mutual_aid.py
 import discord
 from discord import app_commands
 from discord.ext import commands
@@ -5,12 +6,20 @@ import re
 from database import DatabaseController
 
 class ContributeModal(discord.ui.Modal, title='Log Contribution'):
-    # Input popup
     amount_input = discord.ui.TextInput(
         label='Amount Sent ($)',
         placeholder='e.g. 15.50',
         style=discord.TextStyle.short,
         required=True
+    )
+    
+
+    anon_input = discord.ui.TextInput(
+        label='Log Anonymously? (Optional)',
+        placeholder='Type "yes" to hide your name',
+        style=discord.TextStyle.short,
+        required=False,
+        max_length=3
     )
 
     def __init__(self, aid_id: int):
@@ -27,6 +36,9 @@ class ContributeModal(discord.ui.Modal, title='Log Contribution'):
         if amount <= 0:
             return await interaction.response.send_message("❌ Amount must be greater than 0.", ephemeral=True)
 
+        is_anonymous = self.anon_input.value.lower().strip() == "yes"
+        contributor_display = "An anonymous donor" if is_anonymous else interaction.user.mention
+
         row = await DatabaseController.get_active_aid(self.aid_id, str(interaction.guild_id))
         if not row:
             return await interaction.response.send_message(f"❌ No active aid request found with ID `{self.aid_id}`.", ephemeral=True)
@@ -35,23 +47,26 @@ class ContributeModal(discord.ui.Modal, title='Log Contribution'):
         new_total = rec_amount + amount
 
         if new_total >= req_amount:
+
             await DatabaseController.update_aid_progress(self.aid_id, new_total, status='completed')
             await interaction.response.send_message(
-                f"🎉 **GOAL REACHED!** Aid request **#{self.aid_id}** for <@{target_user_id}> has reached its goal of ${req_amount:.2f} and has been removed from the queue! (Total raised: ${new_total:.2f})"
+                f"🎉 **GOAL REACHED!** {contributor_display} logged ${amount:.2f}. "
+                f"Aid request **#{self.aid_id}** for <@{target_user_id}> is complete! (Total: ${new_total:.2f})"
             )
         else:
             await DatabaseController.update_aid_progress(self.aid_id, new_total)
             await interaction.response.send_message(
-                f"✅ Thank you! You logged a sent amount of ${amount:.2f} to aid **#{self.aid_id}**. Current progress: **${new_total:.2f} / ${req_amount:.2f}**."
+                f"✅ Thank you! {contributor_display} logged a contribution of ${amount:.2f} to aid **#{self.aid_id}**. "
+                f"Current progress: **${new_total:.2f} / ${req_amount:.2f}**."
             )
 
 class ContributionView(discord.ui.View):
     def __init__(self):
-        super().__init__(timeout=None) # timeout=None makes the button persistent across bot restarts!
+        super().__init__(timeout=None) 
 
     @discord.ui.button(label="💸 Log Contribution", style=discord.ButtonStyle.success, custom_id="persistent_contribute_btn")
     async def contribute_button(self, interaction: discord.Interaction, button: discord.ui.Button):
-        # Read the Aid ID directly from the text of the embed they clicked on
+        
         embed = interaction.message.embeds[0]
         match = re.search(r'(?:ID:\s*|#)(\d+)', embed.title)
         
@@ -59,7 +74,6 @@ class ContributionView(discord.ui.View):
             return await interaction.response.send_message("❌ Could not determine the Aid ID from this message.", ephemeral=True)
         
         aid_id = int(match.group(1))
-        # Launch the popup modal
         await interaction.response.send_modal(ContributeModal(aid_id=aid_id))
 
 class MutualAidCommands(commands.Cog):
@@ -84,7 +98,6 @@ class MutualAidCommands(commands.Cog):
         embed.add_field(name="Goal", value=f"${amount:.2f}", inline=True)
         embed.add_field(name="Description", value=description, inline=False)
         embed.set_footer(text=f"Click the button below or use /sendaid {aid_id} <amount> to contribute!")
-        # Attach the persistent view (the button) AND force the role ping
         await interaction.response.send_message(
             content=role_ping, 
             embed=embed, 
@@ -93,10 +106,18 @@ class MutualAidCommands(commands.Cog):
         )
 
     @app_commands.command(name="sendaid", description="Log a contribution to an active aid request.")
-    @app_commands.describe(aid_id="The ID of the aid event", amount="The amount you sent")
-    async def sendaid(self, interaction: discord.Interaction, aid_id: int, amount: float):
+    @app_commands.describe(
+        aid_id="The ID of the aid event", 
+        amount="The amount you sent",
+        anonymous="Hide your name from the progress message?"
+    )
+    async def sendaid(self, interaction: discord.Interaction, aid_id: int, amount: float, anonymous: bool = False):
         modal = ContributeModal(aid_id=aid_id)
+        
         modal.amount_input.value = str(amount)
+        if anonymous:
+            modal.anon_input.value = "yes"
+        
         await modal.on_submit(interaction)
 
     @app_commands.command(name="listaids", description="List all active mutual aid requests.")
