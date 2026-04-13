@@ -82,3 +82,18 @@ class ProfileSkill(SQLModel, table=True):
     user_id: str = Field(primary_key=True)
     skill_id: int = Field(primary_key=True, foreign_key="skills.id", ondelete="CASCADE")
     proficiency: Optional[str] = None
+
+class Event(SQLModel, table=True):
+    __tablename__ = "events"
+    id: Optional[int] = Field(default=None, primary_key=True)
+    guild_id: str
+    name: str
+    created_at: int
+
+class EventAttendance(SQLModel, table=True):
+    __tablename__ = "event_attendance"
+    __table_args__ = (UniqueConstraint("event_id", "user_id", name="uq_event_user_attendance"),)
+    id: Optional[int] = Field(default=None, primary_key=True)
+    event_id: int = Field(foreign_key="events.id", ondelete="CASCADE")
+    user_id: str
+    check_in_time: int

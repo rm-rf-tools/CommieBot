@@ -5,7 +5,7 @@ from sqlalchemy.exc import IntegrityError
 from sqlmodel import SQLModel, select, or_, func
 from sqlalchemy.ext.asyncio import create_async_engine, AsyncSession
 
-from models import ServerConfig, Aid, Committee, CommitteeAssignment, QuoteTemplate, Ticket, TicketStaffRole, Profile, Skill, ProfileSkill
+from models import ServerConfig, Aid, Committee, CommitteeAssignment, QuoteTemplate, Ticket, TicketStaffRole, Profile, Skill, ProfileSkill, Event, EventAttendance
 
 DB_PATH = "./data/mutual_aid.db"
 DATABASE_URL = f"sqlite+aiosqlite:///{DB_PATH.lstrip('./')}"
@@ -497,3 +497,39 @@ class DatabaseController:
                 await session.commit()
                 return True
             return False
+
+    
+    @staticmethod
+    async def get_or_create_event(guild_id: str, name: str) -> int:
+        async with AsyncSession(engine) as session:
+            stmt = select(Event).where(
+                Event.guild_id == guild_id,
+                func.lower(Event.name) == name.lower()
+            )
+            result = await session.execute(stmt)
+            obj = result.scalar_one_or_none()
+            if obj:
+                return obj.id
+            
+            now = int(time.time())
+            obj = Event(guild_id=guild_id, name=name, created_at=now)
+            session.add(obj)
+            await session.commit()
+            await session.refresh(obj)
+            return obj.id
+
+    @staticmethod
+    async def log_attendance(event_id: int, user_ids: list[str]) -> int:
+        added_count = 0
+        async with AsyncSession(engine) as session:
+            now = int(time.time())
+            for uid in user_ids:
+                obj = EventAttendance(event_id=event_id, user_id=uid, check_in_time=now)
+                session.add(obj)
+                try:
+                    await session.commit()
+                    added_count += 1
+                except IntegrityError:
+                    # Ignore if the user is already logged for this event
+                    await session.rollback()
+        return added_count
