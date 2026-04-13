@@ -562,15 +562,6 @@ class DatabaseController:
             return obj
 
     @staticmethod
-    async def create_form(guild_id: str, name: str, description: str):
-        async with AsyncSession(engine) as session:
-            obj = FormTemplate(guild_id=guild_id, name=name, description=description, created_at=int(time.time()))
-            session.add(obj)
-            await session.commit()
-            await session.refresh(obj)
-            return obj.id
-
-    @staticmethod
     async def get_all_forms(guild_id: str):
         async with AsyncSession(engine) as session:
             stmt = select(FormTemplate).where(FormTemplate.guild_id == guild_id)
@@ -627,17 +618,6 @@ class DatabaseController:
             result = await session.execute(stmt)
             return result.scalars().all()
 
-    @staticmethod
-    async def check_recent_submission(form_id: int, applicant_id: int) -> bool:
-        async with AsyncSession(engine) as session:
-            thirty_days_ago = int(time.time()) - (30 * 24 * 60 * 60)
-            stmt = select(FormSubmission).where(
-                FormSubmission.form_id == form_id,
-                FormSubmission.applicant_id == applicant_id,
-                FormSubmission.submitted_at >= thirty_days_ago
-            )
-            result = await session.execute(stmt)
-            return result.scalar_one_or_none() is not None
 
     @staticmethod
     async def save_form_submission(form_id: int, applicant_id: int, answers: dict) -> int:
@@ -692,4 +672,42 @@ class DatabaseController:
             obj = await session.get(FormSubmission, submission_id)
             if obj:
                 obj.status = status
+                await session.commit()
+
+
+    @staticmethod
+    async def create_form(guild_id: str, name: str, description: str, cooldown_days: int = 0):
+        async with AsyncSession(engine) as session:
+            obj = FormTemplate(
+                guild_id=guild_id, name=name, description=description, 
+                created_at=int(time.time()), cooldown_days=cooldown_days
+            )
+            session.add(obj)
+            await session.commit()
+            await session.refresh(obj)
+            return obj.id
+
+    @staticmethod
+    async def check_recent_submission(form_id: int, applicant_id: int, cooldown_days: int) -> bool:
+        if cooldown_days <= 0:
+            return False # No cooldown configured
+            
+        async with AsyncSession(engine) as session:
+            cutoff_time = int(time.time()) - (cooldown_days * 24 * 60 * 60)
+            stmt = select(FormSubmission).where(
+                FormSubmission.form_id == form_id,
+                FormSubmission.applicant_id == applicant_id,
+                FormSubmission.submitted_at >= cutoff_time
+            )
+            result = await session.execute(stmt)
+            return result.scalar_one_or_none() is not None
+
+    @staticmethod
+    async def update_form_details(form_id: int, name: str, description: str, cooldown_days: int):
+        async with AsyncSession(engine) as session:
+            obj = await session.get(FormTemplate, form_id)
+            if obj:
+                obj.name = name
+                obj.description = description
+                obj.cooldown_days = cooldown_days
                 await session.commit()

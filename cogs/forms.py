@@ -42,45 +42,49 @@ class TextAnswerModal(discord.ui.Modal, title="Answer Question"):
         await render_next_question(interaction, self.view.session)
 
 
-class FeedbackModal(discord.ui.Modal, title="Final Steps"):
+class FeedbackModal(discord.ui.Modal, title="Optional Feedback"):
     feedback = discord.ui.TextInput(
         label="Any Feedback or Questions?", 
         style=discord.TextStyle.paragraph, 
-        required=False,
-        placeholder="Type here, or leave blank to submit."
+        required=True,
+        placeholder="Type your feedback here..."
     )
 
-    def __init__(self, session):
+    def __init__(self, form_name: str):
         super().__init__()
-        self.session = session
+        self.form_name = form_name
 
     async def on_submit(self, interaction: discord.Interaction):
         feedback_text = self.feedback.value
         
-        # Log feedback to a local text file rather than the database
-        if feedback_text.strip():
-            os.makedirs("./data", exist_ok=True)
-            with open("./data/form_feedback.txt", "a", encoding="utf-8") as f:
-                f.write(f"[{time.strftime('%Y-%m-%d %H:%M:%S')}] User: {interaction.user.name} | Form: {self.session['form_name']}\n")
-                f.write(f"{feedback_text.strip()}\n")
-                f.write("-" * 50 + "\n")
+        os.makedirs("./data", exist_ok=True)
+        with open("./data/form_feedback.txt", "a", encoding="utf-8") as f:
+            f.write(f"[{time.strftime('%Y-%m-%d %H:%M:%S')}] User: {interaction.user.name} | Form: {self.form_name}\n")
+            f.write(f"{feedback_text.strip()}\n")
+            f.write("-" * 50 + "\n")
 
-        await DatabaseController.save_form_submission(
-            self.session["form_id"], self.session["applicant_id"], self.session["answers"]
-        )
-        
-        if interaction.user.id in active_sessions:
-            del active_sessions[interaction.user.id]
-        
-        embed = discord.Embed(title="✅ Application Submitted!", description="Thank you! We've received your application.", color=discord.Color.green())
+        embed = discord.Embed(title="✅ Feedback Received", description="Thank you for your input! Your application is already fully submitted.", color=discord.Color.green())
         await interaction.response.edit_message(embed=embed, view=None)
 
 
+class OptionalFeedbackView(discord.ui.View):
+    def __init__(self, form_name: str):
+        super().__init__(timeout=600)
+        self.form_name = form_name
+
+    @discord.ui.button(label="📝 Leave Optional Feedback", style=discord.ButtonStyle.secondary)
+    async def feedback_btn(self, interaction: discord.Interaction, button: discord.ui.Button):
+        await interaction.response.send_modal(FeedbackModal(self.form_name))
+
+
 class QuestionView(discord.ui.View):
-    def __init__(self, session):
+    def __init__(self, session, is_last: bool):
         super().__init__(timeout=1800)
         self.session = session
         self.q = session["questions"][session["current_idx"]]
+        self.is_last = is_last
+        
+        self.continue_text = "Save & Submit ➔" if self.is_last else "Save & Continue ➔"
 
         if self.q.question_type == "text":
             btn = discord.ui.Button(label="📝 Type Answer", style=discord.ButtonStyle.primary)
@@ -90,7 +94,6 @@ class QuestionView(discord.ui.View):
         elif self.q.question_type == "single":
             options = [o.strip() for o in self.q.options.split(",") if o.strip()]
             if len(options) <= 25:
-                # Industry standard 1-click button layout
                 for i, opt in enumerate(options):
                     btn = discord.ui.Button(label=opt[:80], style=discord.ButtonStyle.secondary, row=i//5)
                     btn.callback = self.make_single_callback(opt)
@@ -110,8 +113,7 @@ class QuestionView(discord.ui.View):
             self.select.callback = self.multi_select_callback
             self.add_item(self.select)
 
-            # A next button appears that enables once they select options from the dropdown
-            self.next_btn = discord.ui.Button(label="Next ➔", style=discord.ButtonStyle.success, disabled=True, row=4)
+            self.next_btn = discord.ui.Button(label=self.continue_text, style=discord.ButtonStyle.success, disabled=True, row=4)
             self.next_btn.callback = self.multi_next_callback
             self.add_item(self.next_btn)
 
@@ -132,22 +134,14 @@ class QuestionView(discord.ui.View):
 
     async def multi_select_callback(self, interaction: discord.Interaction):
         self.next_btn.disabled = False
+        num_selected = len(self.select.values)
+        self.select.placeholder = f"✅ {num_selected} option{'s' if num_selected > 1 else ''} selected"
         await interaction.response.edit_message(view=self)
 
     async def multi_next_callback(self, interaction: discord.Interaction):
         self.session["answers"][self.q.id] = ", ".join(self.select.values)
         self.session["current_idx"] += 1
         await render_next_question(interaction, self.session)
-
-
-class EndFormView(discord.ui.View):
-    def __init__(self, session):
-        super().__init__(timeout=1800)
-        self.session = session
-
-    @discord.ui.button(label="Provide Feedback & Submit", style=discord.ButtonStyle.success)
-    async def finish_btn(self, interaction: discord.Interaction, button: discord.ui.Button):
-        await interaction.response.send_modal(FeedbackModal(self.session))
 
 
 async def start_form_session(interaction: discord.Interaction, form_id: int, form_name: str, applicant):
@@ -174,21 +168,46 @@ async def render_next_question(interaction: discord.Interaction, session: dict, 
     questions = session["questions"]
 
     if idx >= len(questions):
-        embed = discord.Embed(title="🏁 Final Step", description="You have answered all the questions!\nClick below to leave optional feedback and finalize your submission.", color=discord.Color.purple())
-        view = EndFormView(session)
+        await DatabaseController.save_form_submission(
+            session["form_id"], session["applicant_id"], session["answers"]
+        )
+        
+        if interaction.user.id in active_sessions:
+            del active_sessions[interaction.user.id]
+
+        embed = discord.Embed(
+            title="✅ Application Submitted!", 
+            description="Thank you! We've successfully received and logged your application.\n\n*If you have any feedback or questions regarding this form, you can optionally submit them below.*", 
+            color=discord.Color.green()
+        )
+        view = OptionalFeedbackView(session["form_name"])
+        
+        if is_first:
+            await interaction.followup.send(embed=embed, view=view, ephemeral=True)
+        else:
+            await interaction.response.edit_message(embed=embed, view=view)
+            
     else:
         q = questions[idx]
+        is_last = (idx == len(questions) - 1)
+        action_word = "submit your application." if is_last else "continue."
+        
         embed = discord.Embed(title=f"Question {idx+1} of {len(questions)}", description=f"**{q.question_text}**", color=discord.Color.blue())
+        
         if q.question_type == 'multiple':
-            embed.set_footer(text="Select options from the dropdown, then click Next.")
+            embed.set_footer(text=f"Select options from the dropdown, then click Save to {action_word}")
         elif q.question_type == 'single':
-            embed.set_footer(text="Click an option to instantly save and advance.")
-        view = QuestionView(session)
+            embed.set_footer(text=f"Click an option below to instantly save and {action_word}")
+        elif q.question_type == 'text':
+            embed.set_footer(text=f"Click the button to type your answer and {action_word}")
+            
+        view = QuestionView(session, is_last=is_last)
 
-    if is_first:
-        await interaction.followup.send(embed=embed, view=view, ephemeral=True)
-    else:
-        await interaction.response.edit_message(embed=embed, view=view)
+        if is_first:
+            await interaction.followup.send(embed=embed, view=view, ephemeral=True)
+        else:
+            await interaction.response.edit_message(embed=embed, view=view)
+
 
 # ==========================================
 #          REVIEW APPLICATIONS UI
@@ -197,7 +216,7 @@ async def render_next_question(interaction: discord.Interaction, session: dict, 
 class ReviewPaginationView(discord.ui.View):
     def __init__(self, submissions, guild_id: str):
         super().__init__(timeout=900)
-        self.submissions = submissions # List of tuples: (submission, template, applicant)
+        self.submissions = submissions
         self.current_idx = 0
         self.guild_id = guild_id
         self.update_buttons()
@@ -254,6 +273,7 @@ class ReviewPaginationView(discord.ui.View):
         sub.status = "denied"
         await interaction.response.edit_message(embed=await self.generate_embed(), view=self)
 
+
 # ==========================================
 #          ADMIN MANAGEMENT UI
 # ==========================================
@@ -261,14 +281,48 @@ class ReviewPaginationView(discord.ui.View):
 class CreateFormModal(discord.ui.Modal, title="Create New Form"):
     name = discord.ui.TextInput(label="Form Name", placeholder="e.g. Officer Application", required=True)
     desc = discord.ui.TextInput(label="Description", style=discord.TextStyle.paragraph, required=True)
+    cooldown = discord.ui.TextInput(label="Cooldown (Days)", placeholder="0 for no cooldown", default="0", required=False)
 
     def __init__(self, parent_view):
         super().__init__()
         self.parent_view = parent_view
 
     async def on_submit(self, interaction: discord.Interaction):
-        await DatabaseController.create_form(self.parent_view.guild_id, self.name.value, self.desc.value)
+        try:
+            cooldown_val = int(self.cooldown.value.strip() or "0")
+        except ValueError:
+            return await interaction.response.send_message("❌ Cooldown must be a valid number of days.", ephemeral=True)
+
+        await DatabaseController.create_form(self.parent_view.guild_id, self.name.value, self.desc.value, cooldown_val)
         await self.parent_view.refresh(interaction)
+
+
+class EditDetailsModal(discord.ui.Modal, title="Edit Form Details"):
+    name = discord.ui.TextInput(label="Form Name", required=True)
+    desc = discord.ui.TextInput(label="Description", style=discord.TextStyle.paragraph, required=True)
+    cooldown = discord.ui.TextInput(label="Cooldown (Days)", placeholder="0 for no cooldown", required=True)
+
+    def __init__(self, form, parent_view):
+        super().__init__()
+        self.form = form
+        self.parent_view = parent_view
+        
+        self.name.default = form.name
+        self.desc.default = form.description
+        self.cooldown.default = str(form.cooldown_days)
+
+    async def on_submit(self, interaction: discord.Interaction):
+        try:
+            cd = int(self.cooldown.value.strip() or "0")
+        except ValueError:
+            return await interaction.response.send_message("❌ Cooldown must be a valid number.", ephemeral=True)
+            
+        await DatabaseController.update_form_details(self.form.id, self.name.value, self.desc.value, cd)
+        self.form.name = self.name.value
+        self.form.description = self.desc.value
+        self.form.cooldown_days = cd
+        await self.parent_view.refresh(interaction)
+
 
 class AddQuestionModal(discord.ui.Modal, title="Add Form Question"):
     q_text = discord.ui.TextInput(label="Question Text", style=discord.TextStyle.paragraph, required=True)
@@ -287,6 +341,7 @@ class AddQuestionModal(discord.ui.Modal, title="Add Form Question"):
         await DatabaseController.add_form_question(self.form_id, self.q_text.value, self.q_type, opts)
         await self.parent_view.refresh(interaction)
 
+
 class EditFormView(discord.ui.View):
     def __init__(self, guild_id: str, form, main_view):
         super().__init__(timeout=600)
@@ -296,7 +351,13 @@ class EditFormView(discord.ui.View):
 
     async def refresh(self, interaction: discord.Interaction):
         questions = await DatabaseController.get_form_questions(self.form.id)
-        embed = discord.Embed(title=f"🛠️ Managing: {self.form.name}", description=self.form.description, color=discord.Color.orange())
+        
+        cooldown_str = f"{self.form.cooldown_days} Days" if self.form.cooldown_days > 0 else "None"
+        embed = discord.Embed(
+            title=f"🛠️ Managing: {self.form.name}", 
+            description=f"**Cooldown:** {cooldown_str}\n\n**Description:** {self.form.description}", 
+            color=discord.Color.orange()
+        )
         
         q_list = ""
         for i, q in enumerate(questions):
@@ -313,26 +374,31 @@ class EditFormView(discord.ui.View):
         else:
             await interaction.response.edit_message(embed=embed, view=self)
 
-    @discord.ui.button(label="Add Text Q", style=discord.ButtonStyle.primary, row=0)
+    @discord.ui.button(label="✏️ Edit Details", style=discord.ButtonStyle.primary, row=0)
+    async def edit_details(self, interaction: discord.Interaction, btn: discord.ui.Button):
+        await interaction.response.send_modal(EditDetailsModal(self.form, self))
+
+    @discord.ui.button(label="Add Text Q", style=discord.ButtonStyle.secondary, row=1)
     async def add_text(self, interaction: discord.Interaction, btn: discord.ui.Button):
         await interaction.response.send_modal(AddQuestionModal(self.form.id, "text", self))
 
-    @discord.ui.button(label="Add Single Choice Q", style=discord.ButtonStyle.secondary, row=0)
+    @discord.ui.button(label="Add Single Choice Q", style=discord.ButtonStyle.secondary, row=1)
     async def add_single(self, interaction: discord.Interaction, btn: discord.ui.Button):
         await interaction.response.send_modal(AddQuestionModal(self.form.id, "single", self))
 
-    @discord.ui.button(label="Add Multi Choice Q", style=discord.ButtonStyle.secondary, row=0)
+    @discord.ui.button(label="Add Multi Choice Q", style=discord.ButtonStyle.secondary, row=1)
     async def add_multi(self, interaction: discord.Interaction, btn: discord.ui.Button):
         await interaction.response.send_modal(AddQuestionModal(self.form.id, "multiple", self))
 
-    @discord.ui.button(label="Delete Form", style=discord.ButtonStyle.danger, row=1)
+    @discord.ui.button(label="🗑️ Delete Form", style=discord.ButtonStyle.danger, row=2)
     async def del_form(self, interaction: discord.Interaction, btn: discord.ui.Button):
         await DatabaseController.delete_form(self.form.id)
         await self.main_view.refresh(interaction)
 
-    @discord.ui.button(label="Back", style=discord.ButtonStyle.secondary, row=1)
+    @discord.ui.button(label="⬅️ Back", style=discord.ButtonStyle.secondary, row=2)
     async def back_btn(self, interaction: discord.Interaction, btn: discord.ui.Button):
         await self.main_view.refresh(interaction)
+
 
 class ManageFormsView(discord.ui.View):
     def __init__(self, guild_id: str):
@@ -393,9 +459,11 @@ class FormsCog(commands.GroupCog, name="forms"):
 
         applicant = await DatabaseController.get_applicant(guild_id, str(interaction.user.id))
         if applicant:
-            has_recent = await DatabaseController.check_recent_submission(form.id, applicant.id)
-            if has_recent:
-                return await interaction.response.send_message("❌ You have already submitted an application to this form within the last 30 days.", ephemeral=True)
+            # Check dynamic cooldown
+            if form.cooldown_days > 0:
+                has_recent = await DatabaseController.check_recent_submission(form.id, applicant.id, form.cooldown_days)
+                if has_recent:
+                    return await interaction.response.send_message(f"❌ You have already submitted an application to this form within the last {form.cooldown_days} days. Please try again later.", ephemeral=True)
             
             await start_form_session(interaction, form.id, form.name, applicant)
         else:
@@ -425,9 +493,9 @@ class FormsCog(commands.GroupCog, name="forms"):
     # --- CLI BACKUP COMMANDS ---
     @app_commands.command(name="backup_create", description="CLI Backup: Create a form.")
     @app_commands.checks.has_permissions(manage_guild=True)
-    async def cmd_create(self, interaction: discord.Interaction, name: str, description: str):
-        await DatabaseController.create_form(str(interaction.guild_id), name, description)
-        await interaction.response.send_message(f"✅ Created form: **{name}**", ephemeral=True)
+    async def cmd_create(self, interaction: discord.Interaction, name: str, description: str, cooldown_days: int = 0):
+        await DatabaseController.create_form(str(interaction.guild_id), name, description, cooldown_days)
+        await interaction.response.send_message(f"✅ Created form: **{name}** (Cooldown: {cooldown_days} days)", ephemeral=True)
 
     @app_commands.command(name="backup_add_question", description="CLI Backup: Add a question to a form.")
     @app_commands.autocomplete(form_name=form_autocomplete)

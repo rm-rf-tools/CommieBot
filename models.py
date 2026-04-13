@@ -116,6 +116,7 @@ class FormTemplate(SQLModel, table=True):
     name: str
     description: str
     created_at: int
+    cooldown_days: int = Field(default=0)
 
 class FormQuestion(SQLModel, table=True):
     __tablename__ = "form_questions"
