@@ -5,7 +5,11 @@ from sqlalchemy.exc import IntegrityError
 from sqlmodel import SQLModel, select, or_, func
 from sqlalchemy.ext.asyncio import create_async_engine, AsyncSession
 
-from models import ServerConfig, Aid, Committee, CommitteeAssignment, QuoteTemplate, Ticket, TicketStaffRole, Profile, Skill, ProfileSkill, Event, EventAttendance
+from models import (
+    ServerConfig, Aid, Committee, CommitteeAssignment, QuoteTemplate, Ticket, 
+    TicketStaffRole, Profile, Skill, ProfileSkill, Event, EventAttendance,
+    Applicant, FormTemplate, FormQuestion, FormSubmission, FormAnswer
+)
 
 DB_PATH = "./data/mutual_aid.db"
 DATABASE_URL = f"sqlite+aiosqlite:///{DB_PATH.lstrip('./')}"
@@ -533,3 +537,159 @@ class DatabaseController:
                     # Ignore if the user is already logged for this event
                     await session.rollback()
         return added_count
+
+
+    @staticmethod
+    async def get_applicant(guild_id: str, user_id: str):
+        async with AsyncSession(engine) as session:
+            stmt = select(Applicant).where(
+                Applicant.guild_id == guild_id, 
+                Applicant.user_id == user_id
+            )
+            result = await session.execute(stmt)
+            return result.scalar_one_or_none()
+
+    @staticmethod
+    async def create_applicant(guild_id: str, user_id: str, username: str, preferred_name: str, pronouns: str):
+        async with AsyncSession(engine) as session:
+            obj = Applicant(
+                guild_id=guild_id, user_id=user_id, username=username, 
+                preferred_name=preferred_name, pronouns=pronouns
+            )
+            session.add(obj)
+            await session.commit()
+            await session.refresh(obj)
+            return obj
+
+    @staticmethod
+    async def create_form(guild_id: str, name: str, description: str):
+        async with AsyncSession(engine) as session:
+            obj = FormTemplate(guild_id=guild_id, name=name, description=description, created_at=int(time.time()))
+            session.add(obj)
+            await session.commit()
+            await session.refresh(obj)
+            return obj.id
+
+    @staticmethod
+    async def get_all_forms(guild_id: str):
+        async with AsyncSession(engine) as session:
+            stmt = select(FormTemplate).where(FormTemplate.guild_id == guild_id)
+            result = await session.execute(stmt)
+            return result.scalars().all()
+
+    @staticmethod
+    async def get_form_by_name(guild_id: str, name: str):
+        async with AsyncSession(engine) as session:
+            stmt = select(FormTemplate).where(
+                FormTemplate.guild_id == guild_id,
+                func.lower(FormTemplate.name) == name.lower()
+            )
+            result = await session.execute(stmt)
+            return result.scalar_one_or_none()
+
+    @staticmethod
+    async def get_form_by_id(form_id: int):
+        async with AsyncSession(engine) as session:
+            return await session.get(FormTemplate, form_id)
+
+    @staticmethod
+    async def delete_form(form_id: int):
+        async with AsyncSession(engine) as session:
+            obj = await session.get(FormTemplate, form_id)
+            if obj:
+                # Manual cascading for sqlite safety
+                q_stmt = select(FormQuestion).where(FormQuestion.form_id == form_id)
+                questions = await session.execute(q_stmt)
+                for q in questions.scalars().all():
+                    await session.delete(q)
+                await session.delete(obj)
+                await session.commit()
+
+    @staticmethod
+    async def add_form_question(form_id: int, text: str, q_type: str, options: str = None):
+        async with AsyncSession(engine) as session:
+            obj = FormQuestion(form_id=form_id, question_text=text, question_type=q_type, options=options)
+            session.add(obj)
+            await session.commit()
+
+    @staticmethod
+    async def delete_form_question(question_id: int):
+        async with AsyncSession(engine) as session:
+            obj = await session.get(FormQuestion, question_id)
+            if obj:
+                await session.delete(obj)
+                await session.commit()
+
+    @staticmethod
+    async def get_form_questions(form_id: int):
+        async with AsyncSession(engine) as session:
+            stmt = select(FormQuestion).where(FormQuestion.form_id == form_id).order_by(FormQuestion.id.asc())
+            result = await session.execute(stmt)
+            return result.scalars().all()
+
+    @staticmethod
+    async def check_recent_submission(form_id: int, applicant_id: int) -> bool:
+        async with AsyncSession(engine) as session:
+            thirty_days_ago = int(time.time()) - (30 * 24 * 60 * 60)
+            stmt = select(FormSubmission).where(
+                FormSubmission.form_id == form_id,
+                FormSubmission.applicant_id == applicant_id,
+                FormSubmission.submitted_at >= thirty_days_ago
+            )
+            result = await session.execute(stmt)
+            return result.scalar_one_or_none() is not None
+
+    @staticmethod
+    async def save_form_submission(form_id: int, applicant_id: int, answers: dict) -> int:
+        async with AsyncSession(engine) as session:
+            submission = FormSubmission(
+                form_id=form_id, 
+                applicant_id=applicant_id, 
+                submitted_at=int(time.time()), 
+                status="pending"
+            )
+            session.add(submission)
+            await session.flush() # Flushes to generate the ID without closing the transaction
+            sub_id = submission.id
+            
+            for q_id, ans_text in answers.items():
+                ans_obj = FormAnswer(
+                    submission_id=sub_id,
+                    question_id=q_id,
+                    answer_text=ans_text
+                )
+                session.add(ans_obj)
+                
+            await session.commit()
+            return sub_id
+
+    @staticmethod
+    async def get_pending_submissions(guild_id: str):
+        async with AsyncSession(engine) as session:
+            stmt = select(FormSubmission, FormTemplate, Applicant).join(
+                FormTemplate, FormSubmission.form_id == FormTemplate.id
+            ).join(
+                Applicant, FormSubmission.applicant_id == Applicant.id
+            ).where(
+                FormTemplate.guild_id == guild_id,
+                FormSubmission.status == "pending"
+            ).order_by(FormSubmission.submitted_at.asc())
+            result = await session.execute(stmt)
+            return result.all()
+
+    @staticmethod
+    async def get_submission_answers(submission_id: int):
+        async with AsyncSession(engine) as session:
+            stmt = select(FormQuestion.question_text, FormAnswer.answer_text).join(
+                FormAnswer, FormQuestion.id == FormAnswer.question_id
+            ).where(FormAnswer.submission_id == submission_id).order_by(FormQuestion.id.asc())
+            result = await session.execute(stmt)
+            return result.all()
+
+    @staticmethod
+    async def update_submission_status(submission_id: int, status: str):
+        async with AsyncSession(engine) as session:
+            obj = await session.get(FormSubmission, submission_id)
+            if obj:
+                obj.status = status
+                await session.commit()

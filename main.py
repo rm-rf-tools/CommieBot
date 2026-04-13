@@ -25,7 +25,8 @@ class MutualAidBot(commands.Bot):
         await self.load_extension("cogs.tickets")
         await self.load_extension("cogs.skills") 
         await self.load_extension("cogs.aipac")
-
+        await self.load_extension("cogs.forms")
+        
         await self.tree.sync()
         print("Slash commands synced and database initialized.")
 

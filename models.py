@@ -97,3 +97,45 @@ class EventAttendance(SQLModel, table=True):
     event_id: int = Field(foreign_key="events.id", ondelete="CASCADE")
     user_id: str
     check_in_time: int
+
+# Forms
+
+class Applicant(SQLModel, table=True):
+    __tablename__ = "applicants"
+    id: Optional[int] = Field(default=None, primary_key=True)
+    guild_id: str
+    user_id: str
+    username: str
+    preferred_name: str
+    pronouns: str
+
+class FormTemplate(SQLModel, table=True):
+    __tablename__ = "form_templates"
+    id: Optional[int] = Field(default=None, primary_key=True)
+    guild_id: str
+    name: str
+    description: str
+    created_at: int
+
+class FormQuestion(SQLModel, table=True):
+    __tablename__ = "form_questions"
+    id: Optional[int] = Field(default=None, primary_key=True)
+    form_id: int = Field(foreign_key="form_templates.id", ondelete="CASCADE")
+    question_text: str
+    question_type: str  # 'text', 'single', 'multiple'
+    options: Optional[str] = None  # Comma-separated options for multiple choice
+
+class FormSubmission(SQLModel, table=True):
+    __tablename__ = "form_submissions"
+    id: Optional[int] = Field(default=None, primary_key=True)
+    form_id: int = Field(foreign_key="form_templates.id", ondelete="CASCADE")
+    applicant_id: int = Field(foreign_key="applicants.id", ondelete="CASCADE")
+    submitted_at: int
+    status: str = Field(default="pending")  # 'pending', 'confirmed', 'denied'
+
+class FormAnswer(SQLModel, table=True):
+    __tablename__ = "form_answers"
+    id: Optional[int] = Field(default=None, primary_key=True)
+    submission_id: int = Field(foreign_key="form_submissions.id", ondelete="CASCADE")
+    question_id: int = Field(foreign_key="form_questions.id", ondelete="CASCADE")
+    answer_text: str
