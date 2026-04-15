@@ -711,3 +711,49 @@ class DatabaseController:
                 obj.description = description
                 obj.cooldown_days = cooldown_days
                 await session.commit()
+
+    @staticmethod
+    async def get_form_question_by_id(question_id: int):
+        async with AsyncSession(engine) as session:
+            return await session.get(FormQuestion, question_id)
+
+    @staticmethod
+    async def update_form_question(question_id: int, text: str, q_type: str, options: str = None):
+        async with AsyncSession(engine) as session:
+            obj = await session.get(FormQuestion, question_id)
+            if obj:
+                obj.question_text = text
+                obj.question_type = q_type
+                obj.options = options
+                await session.commit()
+
+    @staticmethod
+    async def set_forms_role(guild_id: str, role_id: str):
+        async with AsyncSession(engine) as session:
+            obj = await session.get(ServerConfig, guild_id)
+            if obj:
+                obj.forms_role_id = role_id
+            else:
+                obj = ServerConfig(guild_id=guild_id, forms_role_id=role_id)
+                session.add(obj)
+            await session.commit()
+
+    @staticmethod
+    async def get_forms_role(guild_id: str):
+        async with AsyncSession(engine) as session:
+            obj = await session.get(ServerConfig, guild_id)
+            return obj.forms_role_id if obj else None
+
+    @staticmethod
+    async def get_historical_submissions(guild_id: str):
+        async with AsyncSession(engine) as session:
+            stmt = select(FormSubmission, FormTemplate, Applicant).join(
+                FormTemplate, FormSubmission.form_id == FormTemplate.id
+            ).join(
+                Applicant, FormSubmission.applicant_id == Applicant.id
+            ).where(
+                FormTemplate.guild_id == guild_id,
+                FormSubmission.status != "pending"
+            ).order_by(FormSubmission.submitted_at.desc()) # Newest history first
+            result = await session.execute(stmt)
+            return result.all()

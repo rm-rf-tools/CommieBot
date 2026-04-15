@@ -8,6 +8,7 @@ class ServerConfig(SQLModel, table=True):
     role_id: Optional[str] = None
     crp_role_id: Optional[str] = None
     ticket_role_id: Optional[str] = None
+    forms_role_id: Optional[str] = None  
 
 class Aid(SQLModel, table=True):
     __tablename__ = "aids"
