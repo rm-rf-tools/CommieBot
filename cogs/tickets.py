@@ -6,6 +6,32 @@ import uuid
 import io
 from database import DatabaseController
 
+class TicketCreateModal(discord.ui.Modal, title="Open a Ticket"):
+    description = discord.ui.TextInput(
+        label="Reason for ticket",
+        style=discord.TextStyle.paragraph,
+        placeholder="Please describe why you are opening this ticket...",
+        required=True,
+        max_length=1000
+    )
+
+    async def on_submit(self, interaction: discord.Interaction):
+        await interaction.response.defer(ephemeral=True)
+        cog = interaction.client.get_cog("Tickets")
+        if cog and hasattr(cog, "create_ticket_channel"):
+            ticket_channel = await cog.create_ticket_channel(interaction, self.description.value)
+            await interaction.followup.send(f"✅ Ticket created: {ticket_channel.mention}", ephemeral=True)
+        else:
+            await interaction.followup.send("❌ Internal Error: Could not find ticket creation logic.", ephemeral=True)
+
+class TicketCreateView(discord.ui.View):
+    def __init__(self):
+        super().__init__(timeout=None)
+
+    @discord.ui.button(label="🎫 Open Ticket", style=discord.ButtonStyle.primary, custom_id="persistent_ticket_create_btn")
+    async def create_ticket(self, interaction: discord.Interaction, button: discord.ui.Button):
+        await interaction.response.send_modal(TicketCreateModal())
+
 class TicketView(discord.ui.View):
     def __init__(self):
         super().__init__(timeout=None)
@@ -41,40 +67,24 @@ class TicketListView(discord.ui.View):
 
         await interaction.followup.send(f"✅ Successfully cleared {len(channels_to_delete)} ticket channels.")
 
+
 class Tickets(commands.Cog):
     def __init__(self, bot):
         self.bot = bot
 
     mod_group = app_commands.Group(name="mod", description="Moderation and ticketing")
     ticket_group = app_commands.Group(name="ticket", description="Ticket management", parent=mod_group)
+    staff_group = app_commands.Group(name="staff", description="Ticket staff management", parent=mod_group)
+    watch_group = app_commands.Group(name="watch", description="Mod watch list management", parent=mod_group)
 
-    # --- STAFF MANAGEMENT (Moved out of nested group) ---
-    
-    @ticket_group.command(name="staff_add", description="Add a role to the ticket staff list")
-    @app_commands.checks.has_permissions(manage_guild=True)
-    async def staff_add(self, interaction: discord.Interaction, role: discord.Role):
-        await DatabaseController.add_staff_role(str(interaction.guild.id), str(role.id))
-        await interaction.response.send_message(f"✅ Added {role.mention} to ticket staff.", ephemeral=True)
-
-    @ticket_group.command(name="staff_remove", description="Remove a role from the ticket staff list")
-    @app_commands.checks.has_permissions(manage_guild=True)
-    async def staff_remove(self, interaction: discord.Interaction, role: discord.Role):
-        await DatabaseController.remove_staff_role(str(interaction.guild.id), str(role.id))
-        await interaction.response.send_message(f"✅ Removed {role.mention} from ticket staff.", ephemeral=True)
-
-    @ticket_group.command(name="staff_list", description="List all current ticket staff roles")
-    async def staff_list(self, interaction: discord.Interaction):
+    async def is_mod(self, interaction: discord.Interaction) -> bool:
         role_ids = await DatabaseController.get_staff_roles(str(interaction.guild.id))
-        if not role_ids:
-            return await interaction.response.send_message("No staff roles configured.", ephemeral=True)
-        mentions = [interaction.guild.get_role(int(rid)).mention for rid in role_ids if interaction.guild.get_role(int(rid))]
-        await interaction.response.send_message(f"**Ticket Staff Roles:**\n" + "\n".join(mentions), ephemeral=True)
+        user_role_ids = [str(r.id) for r in interaction.user.roles]
+        return any(rid in user_role_ids for rid in role_ids) or interaction.user.guild_permissions.manage_messages
 
-    # --- TICKET COMMANDS ---
-
-    @mod_group.command(name="ping", description="Open a ticket and ping moderators")
-    async def mod_ping(self, interaction: discord.Interaction, description: str):
-        await interaction.response.defer(ephemeral=True)
+    # --- TICKET HELPER ---
+    
+    async def create_ticket_channel(self, interaction: discord.Interaction, description: str):
         role_ids = await DatabaseController.get_staff_roles(str(interaction.guild.id))
         
         category = discord.utils.get(interaction.guild.categories, name="Tickets")
@@ -106,7 +116,73 @@ class Tickets(commands.Cog):
         embed = discord.Embed(title=f"Ticket: {ticket_id}", description=f"**Reason:**\n{description}", color=discord.Color.red())
         content = f"{interaction.user.mention} Ticket created. {' '.join(ping_list)}"
         await ticket_channel.send(content=content, embed=embed, view=TicketView())
+        
+        return ticket_channel
+
+    async def process_ticket_closure(self, interaction: discord.Interaction):
+        if not await self.is_mod(interaction) and interaction.channel.topic != str(interaction.user.id):
+            return await interaction.response.send_message("❌ No permission.", ephemeral=True)
+
+        if not interaction.response.is_done(): await interaction.response.defer()
+        
+        transcript = []
+        async for m in interaction.channel.history(limit=None, oldest_first=True):
+            transcript.append(f"[{m.created_at.strftime('%Y-%m-%d %H:%M:%S')}] {m.author}: {m.content}")
+        
+        await DatabaseController.close_ticket_db(str(interaction.channel.id))
+        log_channel = discord.utils.get(interaction.guild.text_channels, name="ticket-logs")
+        if log_channel:
+            file = discord.File(fp=io.BytesIO("\n".join(transcript).encode("utf-8")), filename=f"log-{interaction.channel.name}.txt")
+            await log_channel.send(content=f"Ticket {interaction.channel.name} closed by {interaction.user}", file=file)
+        
+        await interaction.followup.send("🔒 Deleting...")
+        await asyncio.sleep(3)
+        await interaction.channel.delete()
+
+    # --- GENERAL MOD COMMANDS ---
+
+    @mod_group.command(name="ping", description="Open a ticket and ping moderators")
+    async def mod_ping(self, interaction: discord.Interaction, description: str):
+        await interaction.response.defer(ephemeral=True)
+        ticket_channel = await self.create_ticket_channel(interaction, description)
         await interaction.followup.send(f"✅ Ticket created: {ticket_channel.mention}")
+
+    @mod_group.command(name="ticketbutton", description="Create a permanent button for users to open tickets")
+    async def ticketbutton(self, interaction: discord.Interaction):
+        if not await self.is_mod(interaction) and not interaction.user.guild_permissions.manage_guild:
+            return await interaction.response.send_message("❌ You do not have permission to create a ticket button.", ephemeral=True)
+            
+        embed = discord.Embed(
+            title="🎫 Contact Support", 
+            description="Click the button below to open a ticket and contact our staff team.", 
+            color=discord.Color.blue()
+        )
+        await interaction.channel.send(embed=embed, view=TicketCreateView())
+        await interaction.response.send_message("✅ Ticket button generated successfully.", ephemeral=True)
+
+    # --- STAFF MANAGEMENT COMMANDS ---
+
+    @staff_group.command(name="add", description="Add a role to the ticket staff list")
+    @app_commands.checks.has_permissions(manage_guild=True)
+    async def staff_add(self, interaction: discord.Interaction, role: discord.Role):
+        await DatabaseController.add_staff_role(str(interaction.guild.id), str(role.id))
+        await interaction.response.send_message(f"✅ Added {role.mention} to ticket staff.", ephemeral=True)
+
+    @staff_group.command(name="remove", description="Remove a role from the ticket staff list")
+    @app_commands.checks.has_permissions(manage_guild=True)
+    async def staff_remove(self, interaction: discord.Interaction, role: discord.Role):
+        await DatabaseController.remove_staff_role(str(interaction.guild.id), str(role.id))
+        await interaction.response.send_message(f"✅ Removed {role.mention} from ticket staff.", ephemeral=True)
+
+    @staff_group.command(name="list", description="List all current ticket staff roles")
+    async def staff_list(self, interaction: discord.Interaction):
+        role_ids = await DatabaseController.get_staff_roles(str(interaction.guild.id))
+        if not role_ids:
+            return await interaction.response.send_message("No staff roles configured.", ephemeral=True)
+        mentions = [interaction.guild.get_role(int(rid)).mention for rid in role_ids if interaction.guild.get_role(int(rid))]
+        await interaction.response.send_message(f"**Ticket Staff Roles:**\n" + "\n".join(mentions), ephemeral=True)
+
+    # --- TICKET MANAGEMENT COMMANDS ---
 
     @ticket_group.command(name="list", description="List active tickets")
     async def ticket_list(self, interaction: discord.Interaction):
@@ -128,29 +204,53 @@ class Tickets(commands.Cog):
     async def ticket_close_cmd(self, interaction: discord.Interaction):
         await self.process_ticket_closure(interaction)
 
-    async def process_ticket_closure(self, interaction: discord.Interaction):
-        role_ids = await DatabaseController.get_staff_roles(str(interaction.guild.id))
-        user_role_ids = [str(r.id) for r in interaction.user.roles]
-        is_staff = any(rid in user_role_ids for rid in role_ids)
-        if not (is_staff or interaction.channel.topic == str(interaction.user.id) or interaction.user.guild_permissions.manage_channels):
-            return await interaction.response.send_message("❌ No permission.", ephemeral=True)
+    # --- WATCH COMMANDS ---
 
-        if not interaction.response.is_done(): await interaction.response.defer()
+    @watch_group.command(name="add", description="Add a user to the mod watch list")
+    @app_commands.describe(user="The user to add", reason="Reason for watching")
+    async def watch_add(self, interaction: discord.Interaction, user: discord.User, reason: str):
+        if not await self.is_mod(interaction):
+            return await interaction.response.send_message("❌ You do not have permission to use the watch list.", ephemeral=True)
+            
+        await DatabaseController.add_to_watch_list(str(interaction.guild.id), str(user.id), reason)
+        await interaction.response.send_message(f"✅ Added {user.mention} to the watch list.\n**Reason:** {reason}", ephemeral=True)
+
+    @watch_group.command(name="list", description="List users currently on the mod watch list")
+    async def watch_list(self, interaction: discord.Interaction):
+        if not await self.is_mod(interaction):
+            return await interaction.response.send_message("❌ You do not have permission to use the watch list.", ephemeral=True)
         
-        transcript = []
-        async for m in interaction.channel.history(limit=None, oldest_first=True):
-            transcript.append(f"[{m.created_at.strftime('%Y-%m-%d %H:%M:%S')}] {m.author}: {m.content}")
+        records = await DatabaseController.get_watch_list(str(interaction.guild.id))
+        if not records:
+            return await interaction.response.send_message("The watch list is currently empty.", ephemeral=True)
         
-        await DatabaseController.close_ticket_db(str(interaction.channel.id))
-        log_channel = discord.utils.get(interaction.guild.text_channels, name="ticket-logs")
-        if log_channel:
-            file = discord.File(fp=io.BytesIO("\n".join(transcript).encode("utf-8")), filename=f"log-{interaction.channel.name}.txt")
-            await log_channel.send(content=f"Ticket {interaction.channel.name} closed by {interaction.user}", file=file)
+        embed = discord.Embed(title="👀 Mod Watch List", color=discord.Color.orange())
         
-        await interaction.followup.send("🔒 Deleting...")
-        await asyncio.sleep(3)
-        await interaction.channel.delete()
+        count = 0
+        for record in records:
+            if count >= 25:
+                embed.set_footer(text=f"Showing 25 out of {len(records)} watched users.")
+                break
+                
+            reason = record.reason[:1000] + "..." if len(record.reason) > 1000 else record.reason
+            embed.add_field(name=f"User ID: {record.user_id}", value=f"<@{record.user_id}> - **Reason:** {reason}", inline=False)
+            count += 1
+        
+        await interaction.response.send_message(embed=embed, ephemeral=True)
+
+    @watch_group.command(name="remove", description="Remove a user from the mod watch list")
+    @app_commands.describe(user="The user to remove")
+    async def watch_remove(self, interaction: discord.Interaction, user: discord.User):
+        if not await self.is_mod(interaction):
+            return await interaction.response.send_message("❌ You do not have permission to use the watch list.", ephemeral=True)
+        
+        success = await DatabaseController.remove_from_watch_list(str(interaction.guild.id), str(user.id))
+        if success:
+            await interaction.response.send_message(f"✅ Removed {user.mention} from the watch list.", ephemeral=True)
+        else:
+            await interaction.response.send_message(f"❌ {user.mention} is not currently on the watch list.", ephemeral=True)
 
 async def setup(bot):
     await bot.add_cog(Tickets(bot))
     bot.add_view(TicketView())
+    bot.add_view(TicketCreateView())

@@ -141,3 +141,18 @@ class FormAnswer(SQLModel, table=True):
     submission_id: int = Field(foreign_key="form_submissions.id", ondelete="CASCADE")
     question_id: int = Field(foreign_key="form_questions.id", ondelete="CASCADE")
     answer_text: str
+
+class ModWatch(SQLModel, table=True):
+    __tablename__ = "mod_watch"
+    guild_id: str = Field(primary_key=True)
+    user_id: str = Field(primary_key=True)
+    reason: str
+
+class ModLogConfig(SQLModel, table=True):
+    __tablename__ = "modlog_configs"
+    guild_id: str = Field(primary_key=True)
+    log_channel_id: Optional[str] = None
+    log_channel_create: bool = Field(default=False)
+    log_channel_delete: bool = Field(default=False)
+    log_channel_rename: bool = Field(default=False)
+    tracked_words: Optional[str] = None

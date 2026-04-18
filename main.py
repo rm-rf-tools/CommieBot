@@ -10,8 +10,13 @@ TOKEN = os.getenv('DISCORD_TOKEN')
 
 class MutualAidBot(commands.Bot):
     def __init__(self):
-        super().__init__(command_prefix="!", intents=discord.Intents.default())
 
+        intents = discord.Intents.default()
+        intents.message_content = True 
+        intents.members = True 
+        
+        super().__init__(command_prefix="!", intents=intents)
+        
     async def setup_hook(self):
         await DatabaseController.setup()
         
@@ -26,6 +31,7 @@ class MutualAidBot(commands.Bot):
         await self.load_extension("cogs.skills") 
         await self.load_extension("cogs.aipac")
         await self.load_extension("cogs.forms")
+        await self.load_extension("cogs.modlogs")
         
         await self.tree.sync()
         print("Slash commands synced and database initialized.")

@@ -8,7 +8,8 @@ from sqlalchemy.ext.asyncio import create_async_engine, AsyncSession
 from models import (
     ServerConfig, Aid, Committee, CommitteeAssignment, QuoteTemplate, Ticket, 
     TicketStaffRole, Profile, Skill, ProfileSkill, Event, EventAttendance,
-    Applicant, FormTemplate, FormQuestion, FormSubmission, FormAnswer
+    Applicant, FormTemplate, FormQuestion, FormSubmission, FormAnswer,
+    ModWatch, ModLogConfig
 )
 
 DB_PATH = "./data/mutual_aid.db"
@@ -757,3 +758,99 @@ class DatabaseController:
             ).order_by(FormSubmission.submitted_at.desc()) # Newest history first
             result = await session.execute(stmt)
             return result.all()
+
+
+    @staticmethod
+    async def add_to_watch_list(guild_id: str, user_id: str, reason: str):
+        async with AsyncSession(engine) as session:
+            obj = await session.get(ModWatch, (guild_id, user_id))
+            if obj:
+                obj.reason = reason # Update reason if already on the list
+            else:
+                obj = ModWatch(guild_id=guild_id, user_id=user_id, reason=reason)
+                session.add(obj)
+            await session.commit()
+
+    @staticmethod
+    async def remove_from_watch_list(guild_id: str, user_id: str) -> bool:
+        async with AsyncSession(engine) as session:
+            obj = await session.get(ModWatch, (guild_id, user_id))
+            if obj:
+                await session.delete(obj)
+                await session.commit()
+                return True
+            return False
+
+    @staticmethod
+    async def get_watch_list(guild_id: str):
+        async with AsyncSession(engine) as session:
+            stmt = select(ModWatch).where(ModWatch.guild_id == guild_id)
+            result = await session.execute(stmt)
+            return result.scalars().all()
+    
+    @staticmethod
+    async def log_channel_audit(guild_id: str, channel_id: str, channel_name: str, user_id: str, action: str, changes: str):
+        async with AsyncSession(engine) as session:
+            now = int(time.time())
+            obj = ChannelAuditLog(
+                guild_id=guild_id, channel_id=channel_id, channel_name=channel_name,
+                user_id=user_id, action=action, changes=changes, timestamp=now
+            )
+            session.add(obj)
+            await session.commit()
+
+    @staticmethod
+    async def get_channel_audit_logs(guild_id: str, user_id: Optional[str] = None, action: Optional[str] = None, limit: int = 50):
+        async with AsyncSession(engine) as session:
+            stmt = select(ChannelAuditLog).where(ChannelAuditLog.guild_id == guild_id)
+            if user_id:
+                stmt = stmt.where(ChannelAuditLog.user_id == user_id)
+            if action:
+                stmt = stmt.where(ChannelAuditLog.action == action)
+            
+            stmt = stmt.order_by(ChannelAuditLog.timestamp.desc()).limit(limit)
+            result = await session.execute(stmt)
+            return result.scalars().all()
+
+    @staticmethod
+    async def get_modlog_config(guild_id: str):
+        async with AsyncSession(engine) as session:
+            obj = await session.get(ModLogConfig, guild_id)
+            if not obj:
+                obj = ModLogConfig(guild_id=guild_id)
+                session.add(obj)
+                await session.commit()
+                await session.refresh(obj)
+            return obj
+
+    @staticmethod
+    async def set_modlog_channel(guild_id: str, channel_id: str):
+        async with AsyncSession(engine) as session:
+            obj = await session.get(ModLogConfig, guild_id)
+            if not obj:
+                obj = ModLogConfig(guild_id=guild_id, log_channel_id=channel_id)
+                session.add(obj)
+            else:
+                obj.log_channel_id = channel_id
+            await session.commit()
+
+    @staticmethod
+    async def toggle_modlog_event(guild_id: str, event: str, state: bool):
+        async with AsyncSession(engine) as session:
+            obj = await session.get(ModLogConfig, guild_id)
+            if not obj:
+                obj = ModLogConfig(guild_id=guild_id)
+                session.add(obj)
+            setattr(obj, event, state)
+            await session.commit()
+
+    @staticmethod
+    async def update_tracked_words(guild_id: str, words: str):
+        async with AsyncSession(engine) as session:
+            obj = await session.get(ModLogConfig, guild_id)
+            if not obj:
+                obj = ModLogConfig(guild_id=guild_id, tracked_words=words)
+                session.add(obj)
+            else:
+                obj.tracked_words = words
+            await session.commit()

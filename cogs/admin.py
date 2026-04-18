@@ -1,4 +1,3 @@
-# cogs/admin.py
 import discord
 from discord import app_commands
 from discord.ext import commands
@@ -46,6 +45,23 @@ class AdminCommands(commands.Cog):
 
         await DatabaseController.clear_all(str(interaction.guild_id))
         await interaction.response.send_message("🚨 All active aid requests in this server have been cleared from the queue.")
+
+    @app_commands.command(name="clearsystem", description="Silently clear all system messages (like joins/pins) from this channel.")
+    @app_commands.describe(limit="Max past messages to scan (default: 1000, enter 0 to scan entire channel)")
+    @app_commands.checks.has_permissions(manage_messages=True)
+    async def clearsystem(self, interaction: discord.Interaction, limit: int = 1000):
+        await interaction.response.defer(ephemeral=True)
+        scan_limit = None if limit <= 0 else limit
+        def is_system_msg(m):
+            return m.is_system()
+            
+        try:
+            deleted = await interaction.channel.purge(limit=scan_limit, check=is_system_msg)
+            await interaction.followup.send(f"✅ Scanned and cleared {len(deleted)} system messages from {interaction.channel.mention}.", ephemeral=True)
+        except discord.Forbidden:
+            await interaction.followup.send("❌ I do not have permission to manage messages in this channel.", ephemeral=True)
+        except Exception as e:
+            await interaction.followup.send(f"❌ Failed to delete messages: {e}", ephemeral=True)
 
 async def setup(bot):
     await bot.add_cog(AdminCommands(bot))
