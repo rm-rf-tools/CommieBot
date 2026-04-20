@@ -63,5 +63,44 @@ class AdminCommands(commands.Cog):
         except Exception as e:
             await interaction.followup.send(f"❌ Failed to delete messages: {e}", ephemeral=True)
 
+    # --- AUTOROLE SYSTEM ---
+    autorole_group = app_commands.Group(name="autorole", description="Manage autoroles assigned automatically to new members.")
+
+    @autorole_group.command(name="set", description="Assign a default role to be applied automatically to new members.")
+    @app_commands.checks.has_permissions(manage_roles=True)
+    async def autorole_set(self, interaction: discord.Interaction, role: discord.Role):
+        if not interaction.guild_id:
+            return await interaction.response.send_message("❌ Must be used in a server.", ephemeral=True)
+            
+        await DatabaseController.set_autorole(str(interaction.guild_id), str(role.id))
+        await interaction.response.send_message(f"✅ Autorole has been set to {role.mention}. Don't forget to enable the feature with `/autorole toggle` if you haven't!", ephemeral=True)
+
+    @autorole_group.command(name="toggle", description="Enable or disable the autorole feature.")
+    @app_commands.checks.has_permissions(manage_roles=True)
+    async def autorole_toggle(self, interaction: discord.Interaction, enabled: bool):
+        if not interaction.guild_id:
+            return await interaction.response.send_message("❌ Must be used in a server.", ephemeral=True)
+            
+        await DatabaseController.toggle_autorole(str(interaction.guild_id), enabled)
+        state = "enabled" if enabled else "disabled"
+        await interaction.response.send_message(f"✅ Autorole feature is now **{state}**.", ephemeral=True)
+
+    @commands.Cog.listener()
+    async def on_member_join(self, member: discord.Member):
+        if member.bot:
+            return
+
+        role_id, enabled = await DatabaseController.get_autorole_config(str(member.guild.id))
+        if enabled and role_id:
+            role = member.guild.get_role(int(role_id))
+            if role:
+                try:
+                    await member.add_roles(role, reason="Autorole system active")
+                except discord.Forbidden:
+                    # Bot lacks permissions or hierarchy to add this role. Fail silently.
+                    pass
+                except discord.HTTPException:
+                    pass
+
 async def setup(bot):
     await bot.add_cog(AdminCommands(bot))

@@ -73,6 +73,38 @@ class DatabaseController:
             obj = await session.get(ServerConfig, guild_id)
             return obj.role_id if obj else None
 
+    # --- AUTOROLE SETTINGS ---
+    @staticmethod
+    async def get_autorole_config(guild_id: str):
+        async with AsyncSession(engine) as session:
+            obj = await session.get(ServerConfig, guild_id)
+            if obj:
+                return obj.autorole_id, obj.autorole_enabled
+            return None, False
+
+    @staticmethod
+    async def set_autorole(guild_id: str, role_id: str):
+        async with AsyncSession(engine) as session:
+            obj = await session.get(ServerConfig, guild_id)
+            if obj:
+                obj.autorole_id = role_id
+            else:
+                obj = ServerConfig(guild_id=guild_id, autorole_id=role_id)
+                session.add(obj)
+            await session.commit()
+
+    @staticmethod
+    async def toggle_autorole(guild_id: str, enabled: bool):
+        async with AsyncSession(engine) as session:
+            obj = await session.get(ServerConfig, guild_id)
+            if obj:
+                obj.autorole_enabled = enabled
+            else:
+                obj = ServerConfig(guild_id=guild_id, autorole_enabled=enabled)
+                session.add(obj)
+            await session.commit()
+
+    # --- REST OF METHODS ---
     @staticmethod
     async def create_aid(guild_id: str, channel_id: str, user_id: str, amount: float, description: str):
         now = int(time.time())
@@ -759,7 +791,6 @@ class DatabaseController:
             result = await session.execute(stmt)
             return result.all()
 
-
     @staticmethod
     async def add_to_watch_list(guild_id: str, user_id: str, reason: str):
         async with AsyncSession(engine) as session:
@@ -792,25 +823,34 @@ class DatabaseController:
     async def log_channel_audit(guild_id: str, channel_id: str, channel_name: str, user_id: str, action: str, changes: str):
         async with AsyncSession(engine) as session:
             now = int(time.time())
-            obj = ChannelAuditLog(
-                guild_id=guild_id, channel_id=channel_id, channel_name=channel_name,
-                user_id=user_id, action=action, changes=changes, timestamp=now
-            )
-            session.add(obj)
-            await session.commit()
+
+            try:
+                from models import ChannelAuditLog
+                obj = ChannelAuditLog(
+                    guild_id=guild_id, channel_id=channel_id, channel_name=channel_name,
+                    user_id=user_id, action=action, changes=changes, timestamp=now
+                )
+                session.add(obj)
+                await session.commit()
+            except ImportError:
+                pass
 
     @staticmethod
     async def get_channel_audit_logs(guild_id: str, user_id: Optional[str] = None, action: Optional[str] = None, limit: int = 50):
         async with AsyncSession(engine) as session:
-            stmt = select(ChannelAuditLog).where(ChannelAuditLog.guild_id == guild_id)
-            if user_id:
-                stmt = stmt.where(ChannelAuditLog.user_id == user_id)
-            if action:
-                stmt = stmt.where(ChannelAuditLog.action == action)
-            
-            stmt = stmt.order_by(ChannelAuditLog.timestamp.desc()).limit(limit)
-            result = await session.execute(stmt)
-            return result.scalars().all()
+            try:
+                from models import ChannelAuditLog
+                stmt = select(ChannelAuditLog).where(ChannelAuditLog.guild_id == guild_id)
+                if user_id:
+                    stmt = stmt.where(ChannelAuditLog.user_id == user_id)
+                if action:
+                    stmt = stmt.where(ChannelAuditLog.action == action)
+                
+                stmt = stmt.order_by(ChannelAuditLog.timestamp.desc()).limit(limit)
+                result = await session.execute(stmt)
+                return result.scalars().all()
+            except ImportError:
+                return []
 
     @staticmethod
     async def get_modlog_config(guild_id: str):

@@ -9,6 +9,8 @@ class ServerConfig(SQLModel, table=True):
     crp_role_id: Optional[str] = None
     ticket_role_id: Optional[str] = None
     forms_role_id: Optional[str] = None  
+    autorole_id: Optional[str] = None
+    autorole_enabled: bool = Field(default=False)
 
 class Aid(SQLModel, table=True):
     __tablename__ = "aids"
@@ -100,7 +102,6 @@ class EventAttendance(SQLModel, table=True):
     check_in_time: int
 
 # Forms
-
 class Applicant(SQLModel, table=True):
     __tablename__ = "applicants"
     id: Optional[int] = Field(default=None, primary_key=True)
