@@ -11,6 +11,7 @@ class ServerConfig(SQLModel, table=True):
     forms_role_id: Optional[str] = None  
     autorole_id: Optional[str] = None
     autorole_enabled: bool = Field(default=False)
+    focus_role_id: Optional[str] = None 
 
 class Aid(SQLModel, table=True):
     __tablename__ = "aids"
@@ -157,3 +158,8 @@ class ModLogConfig(SQLModel, table=True):
     log_channel_delete: bool = Field(default=False)
     log_channel_rename: bool = Field(default=False)
     tracked_words: Optional[str] = None
+
+class FocusChannel(SQLModel, table=True):
+    __tablename__ = "focus_channels"
+    guild_id: str = Field(primary_key=True)
+    channel_id: str = Field(primary_key=True)

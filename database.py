@@ -9,7 +9,7 @@ from models import (
     ServerConfig, Aid, Committee, CommitteeAssignment, QuoteTemplate, Ticket, 
     TicketStaffRole, Profile, Skill, ProfileSkill, Event, EventAttendance,
     Applicant, FormTemplate, FormQuestion, FormSubmission, FormAnswer,
-    ModWatch, ModLogConfig
+    ModWatch, ModLogConfig, FocusChannel
 )
 
 DB_PATH = "./data/mutual_aid.db"
@@ -894,3 +894,45 @@ class DatabaseController:
             else:
                 obj.tracked_words = words
             await session.commit()
+            
+    # Focus Mode
+    @staticmethod
+    async def set_focus_role(guild_id: str, role_id: Optional[str]):
+        async with AsyncSession(engine) as session:
+            obj = await session.get(ServerConfig, guild_id)
+            if obj:
+                obj.focus_role_id = role_id
+            else:
+                obj = ServerConfig(guild_id=guild_id, focus_role_id=role_id)
+                session.add(obj)
+            await session.commit()
+
+    @staticmethod
+    async def get_focus_role(guild_id: str):
+        async with AsyncSession(engine) as session:
+            obj = await session.get(ServerConfig, guild_id)
+            return obj.focus_role_id if obj else None
+
+    @staticmethod
+    async def add_focus_channel(guild_id: str, channel_id: str):
+        async with AsyncSession(engine) as session:
+            obj = await session.get(FocusChannel, (guild_id, channel_id))
+            if not obj:
+                obj = FocusChannel(guild_id=guild_id, channel_id=channel_id)
+                session.add(obj)
+                await session.commit()
+
+    @staticmethod
+    async def remove_focus_channel(guild_id: str, channel_id: str):
+        async with AsyncSession(engine) as session:
+            obj = await session.get(FocusChannel, (guild_id, channel_id))
+            if obj:
+                await session.delete(obj)
+                await session.commit()
+
+    @staticmethod
+    async def get_focus_channels(guild_id: str):
+        async with AsyncSession(engine) as session:
+            stmt = select(FocusChannel).where(FocusChannel.guild_id == guild_id)
+            result = await session.execute(stmt)
+            return [obj.channel_id for obj in result.scalars().all()]
