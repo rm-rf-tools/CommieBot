@@ -1,6 +1,7 @@
 import discord
 from discord import app_commands
 from discord.ext import commands
+from typing import Union
 from database import DatabaseController
 
 class FocusCog(commands.GroupCog, name="focus"):
@@ -64,43 +65,60 @@ class FocusCog(commands.GroupCog, name="focus"):
 
     @channel_group.command(name="add", description="Add a channel to the allowed Focus Mode list")
     @app_commands.checks.has_permissions(manage_guild=True)
-    async def focus_channel_add(self, interaction: discord.Interaction, channel: discord.TextChannel):
+    async def focus_channel_add(self, interaction: discord.Interaction, channel: Union[discord.abc.GuildChannel, discord.Thread]):
         guild_id = str(interaction.guild_id)
         role_id = await DatabaseController.get_focus_role(guild_id)
 
-        await DatabaseController.add_focus_channel(guild_id, str(channel.id))
+        # Handle threads by targeting their parent channel
+        if isinstance(channel, discord.Thread):
+            target_channel = channel.parent
+            msg = f"⚠️ Discord doesn't allow permissions directly on threads. I added its parent channel {target_channel.mention} instead."
+        else:
+            target_channel = channel
+            msg = f"✅ Added {target_channel.mention} to focus channels."
+
+        await DatabaseController.add_focus_channel(guild_id, str(target_channel.id))
         
         # If the role is configured, apply the explicit allow overwrite
         if role_id:
             focus_role = interaction.guild.get_role(int(role_id))
             if focus_role:
-                await channel.set_permissions(focus_role, view_channel=True)
+                try:
+                    await target_channel.set_permissions(focus_role, view_channel=True)
+                except discord.Forbidden:
+                    msg += "\n*(Warning: I lack permissions to edit this channel's settings!)*"
 
-        await interaction.response.send_message(f"✅ Added {channel.mention} to focus channels.", ephemeral=True)
+        await interaction.response.send_message(msg, ephemeral=True)
 
     @channel_group.command(name="remove", description="Remove a channel from the allowed Focus Mode list")
     @app_commands.checks.has_permissions(manage_guild=True)
-    async def focus_channel_remove(self, interaction: discord.Interaction, channel: discord.TextChannel):
+    async def focus_channel_remove(self, interaction: discord.Interaction, channel: Union[discord.abc.GuildChannel, discord.Thread]):
         guild_id = str(interaction.guild_id)
         role_id = await DatabaseController.get_focus_role(guild_id)
 
-        await DatabaseController.remove_focus_channel(guild_id, str(channel.id))
+        if isinstance(channel, discord.Thread):
+            target_channel = channel.parent
+            msg = f"⚠️ Threads inherit permissions. I removed its parent channel {target_channel.mention} instead."
+        else:
+            target_channel = channel
+            msg = f"✅ Removed {target_channel.mention} from focus channels."
+
+        await DatabaseController.remove_focus_channel(guild_id, str(target_channel.id))
 
         # If the role is configured, apply the explicit deny overwrite
         if role_id:
             focus_role = interaction.guild.get_role(int(role_id))
             if focus_role:
-                await channel.set_permissions(focus_role, view_channel=False)
+                try:
+                    await target_channel.set_permissions(focus_role, view_channel=False)
+                except discord.Forbidden:
+                    msg += "\n*(Warning: I lack permissions to edit this channel's settings!)*"
 
-        await interaction.response.send_message(f"✅ Removed {channel.mention} from focus channels.", ephemeral=True)
+        await interaction.response.send_message(msg, ephemeral=True)
 
     @app_commands.command(name="sync", description="Automatically configure all server channel permissions for Focus Mode")
     @app_commands.checks.has_permissions(manage_guild=True)
     async def focus_sync(self, interaction: discord.Interaction):
-        """
-        This is the magic command that loops through every channel and explicitly hides them, 
-        saving the admins from having to manually tweak channel settings.
-        """
         await interaction.response.defer(ephemeral=True)
         
         guild_id = str(interaction.guild_id)
@@ -116,7 +134,7 @@ class FocusCog(commands.GroupCog, name="focus"):
         focus_channels = await DatabaseController.get_focus_channels(guild_id)
         updates = 0
 
-        # Loop through all categories, text, and voice channels
+        # Loop through all categories, text, voice, and forum channels
         for channel in interaction.guild.channels:
             try:
                 if str(channel.id) in focus_channels:
