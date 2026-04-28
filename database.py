@@ -9,7 +9,7 @@ from models import (
     ServerConfig, Aid, Committee, CommitteeAssignment, QuoteTemplate, Ticket, 
     TicketStaffRole, Profile, Skill, ProfileSkill, Event, EventAttendance,
     Applicant, FormTemplate, FormQuestion, FormSubmission, FormAnswer,
-    ModWatch, ModLogConfig, FocusChannel
+    ModWatch, ModLogConfig, FocusChannel, GrokReply, UserLastSeen
 )
 
 DB_PATH = "./data/mutual_aid.db"
@@ -936,3 +936,96 @@ class DatabaseController:
             stmt = select(FocusChannel).where(FocusChannel.guild_id == guild_id)
             result = await session.execute(stmt)
             return [obj.channel_id for obj in result.scalars().all()]
+
+    # --- GROK COMMANDS ---
+    @staticmethod
+    async def add_grok_reply(guild_id: str, text: str, category: str = "general", keywords: str = None, intent: str = "neutral"):
+        async with AsyncSession(engine) as session:
+            obj = GrokReply(
+                guild_id=guild_id, 
+                reply_text=text, 
+                category=category, 
+                keywords=keywords, 
+                intent=intent
+            )
+            session.add(obj)
+            await session.commit()
+
+    @staticmethod
+    async def get_grok_replies(guild_id: str):
+        async with AsyncSession(engine) as session:
+            stmt = select(GrokReply).where(GrokReply.guild_id == guild_id)
+            result = await session.execute(stmt)
+            return result.scalars().all()
+
+    @staticmethod
+    async def edit_grok_reply(reply_id: int, new_text: str = None, category: str = None, keywords: str = None, intent: str = None) -> bool:
+        async with AsyncSession(engine) as session:
+            obj = await session.get(GrokReply, reply_id)
+            if obj:
+                if new_text is not None:
+                    obj.reply_text = new_text
+                if category is not None:
+                    obj.category = category
+                if keywords is not None:
+                    obj.keywords = keywords
+                if intent is not None:
+                    obj.intent = intent
+                await session.commit()
+                return True
+            return False
+
+    @staticmethod
+    async def delete_grok_reply(reply_id: int) -> bool:
+        async with AsyncSession(engine) as session:
+            obj = await session.get(GrokReply, reply_id)
+            if obj:
+                await session.delete(obj)
+                await session.commit()
+                return True
+            return False
+
+    # --- LAST SEEN TRACKING ---
+    @staticmethod
+    async def update_last_seen(guild_id: str, user_id: str, timestamp: int):
+        async with AsyncSession(engine) as session:
+            obj = await session.get(UserLastSeen, (guild_id, user_id))
+            if obj:
+                obj.last_seen_at = timestamp
+            else:
+                obj = UserLastSeen(guild_id=guild_id, user_id=user_id, last_seen_at=timestamp)
+                session.add(obj)
+            await session.commit()
+
+    @staticmethod
+    async def get_last_seen(guild_id: str, user_id: str):
+        async with AsyncSession(engine) as session:
+            obj = await session.get(UserLastSeen, (guild_id, user_id))
+            return obj.last_seen_at if obj else None
+
+    @staticmethod
+    async def clear_all_grok_replies(guild_id: str):
+        async with AsyncSession(engine) as session:
+            stmt = select(GrokReply).where(GrokReply.guild_id == guild_id)
+            result = await session.execute(stmt)
+            for obj in result.scalars().all():
+                await session.delete(obj)
+            await session.commit()
+
+    @staticmethod
+    async def get_total_raised(guild_id: Optional[str] = None):
+        """
+        Returns the total sum of money raised.
+        If guild_id is provided, returns total for that server.
+        Otherwise returns global total.
+        """
+        async with AsyncSession(engine) as session:
+            stmt = select(func.sum(Aid.amount_received))
+
+            if guild_id:
+                stmt = stmt.where(Aid.guild_id == guild_id)
+            result = await session.execute(stmt)
+
+            total = result.scalar_one_or_none()
+            
+            return total if total is not None else 0.0

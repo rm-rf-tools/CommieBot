@@ -139,7 +139,20 @@ class MutualAidCommands(commands.Cog):
             )
 
         await interaction.response.send_message(embed=embed)
+    @app_commands.command(name="aidstats", description="View total money raised through mutual aid.")
+    async def aid_stats(self, interaction: discord.Interaction):
+        # Total for this server
+        local_total = await DatabaseController.get_total_raised(str(interaction.guild_id))
+        
+        # Global total (optional, remove guild_id to get all servers)
+        global_total = await DatabaseController.get_total_raised()
 
+        embed = discord.Embed(title="📊 Mutual Aid Statistics", color=discord.Color.gold())
+        embed.add_field(name="This Server", value=f"${local_total:,.2f}", inline=True)
+        embed.add_field(name="Bot Total (All Servers)", value=f"${global_total:,.2f}", inline=True)
+        
+        await interaction.response.send_message(embed=embed)
+        
 async def setup(bot):
     bot.add_view(ContributionView())
     await bot.add_cog(MutualAidCommands(bot))

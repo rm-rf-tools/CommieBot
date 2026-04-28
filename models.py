@@ -163,3 +163,18 @@ class FocusChannel(SQLModel, table=True):
     __tablename__ = "focus_channels"
     guild_id: str = Field(primary_key=True)
     channel_id: str = Field(primary_key=True)
+
+class GrokReply(SQLModel, table=True):
+    __tablename__ = "grok_replies"
+    id: Optional[int] = Field(default=None, primary_key=True)
+    guild_id: str
+    reply_text: str
+    category: str = Field(default="general")
+    keywords: Optional[str] = Field(default=None)  
+    intent: Optional[str] = Field(default="neutral") 
+
+class UserLastSeen(SQLModel, table=True):
+    __tablename__ = "user_last_seen"
+    guild_id: str = Field(primary_key=True)
+    user_id: str = Field(primary_key=True)
+    last_seen_at: int
