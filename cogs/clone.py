@@ -5,6 +5,8 @@ import asyncio
 import io
 import time
 import random
+import os
+import re
 
 class CloneCog(commands.GroupCog, name="clone"):
     def __init__(self, bot):
@@ -20,7 +22,64 @@ class CloneCog(commands.GroupCog, name="clone"):
                     new_overwrites[target_guild.default_role] = overwrite
                 elif target.id in role_map:
                     new_overwrites[role_map[target.id]] = overwrite
+                    
+        # SELF-PRESERVATION: Ensure the bot explicitly grants itself access to the new channel.
+        # This prevents Discord Error 50013 (locking oneself out of a newly created private channel).
+        bot_member = target_guild.me
+        bot_overwrite = new_overwrites.get(bot_member, discord.PermissionOverwrite())
+        bot_overwrite.update(view_channel=True, manage_channels=True, manage_roles=True, manage_webhooks=True)
+        new_overwrites[bot_member] = bot_overwrite
+        
         return new_overwrites
+
+    # ==========================================
+    #             DIAGNOSTICS
+    # ==========================================
+
+    @app_commands.command(name="diagnose", description="Check if the bot has the correct permissions to clone servers/messages.")
+    @app_commands.describe(source_guild_id="The ID of the server you want to copy FROM")
+    @app_commands.checks.has_permissions(administrator=True)
+    async def clone_diagnose(self, interaction: discord.Interaction, source_guild_id: str):
+        await interaction.response.defer(ephemeral=True)
+
+        try:
+            source_guild_id = int(source_guild_id)
+        except ValueError:
+            return await interaction.followup.send("❌ Invalid Server ID provided.")
+
+        source_guild = self.bot.get_guild(source_guild_id)
+        target_guild = interaction.guild
+
+        embed = discord.Embed(title="🔍 Clone Diagnostic Report", color=discord.Color.blue())
+
+        # 1. Check Target Server (Where the bot is typing)
+        target_admin = target_guild.me.guild_permissions.administrator
+        target_status = "✅ YES" if target_admin else "❌ NO (Crucial for Server Cloning)"
+        embed.add_field(
+            name="Target Server (Here)", 
+            value=f"**Administrator:** {target_status}\n*The bot MUST have Administrator here to successfully clone private channels and roles without throwing 50013 errors.*", 
+            inline=False
+        )
+
+        # 2. Check Source Server
+        if not source_guild:
+            embed.add_field(name="Source Server", value="❌ Bot is NOT in the source server, or ID is wrong.", inline=False)
+        else:
+            source_perms = source_guild.me.guild_permissions
+            read_perms = source_perms.view_channel and source_perms.read_message_history
+            source_status = "✅ YES" if read_perms else "❌ NO (Cannot read history/channels)"
+            
+            # Count how many channels the bot can actually see
+            visible_channels = len([c for c in source_guild.channels if c.permissions_for(source_guild.me).view_channel])
+            total_channels = len(source_guild.channels)
+            
+            embed.add_field(
+                name=f"Source Server: {source_guild.name}", 
+                value=f"**Read Permissions:** {source_status}\n**Channels Visible:** {visible_channels} / {total_channels}\n*If Channels Visible is lower than the total, give the bot an Admin role in the source server so it can see private channels to clone them.*", 
+                inline=False
+            )
+
+        await interaction.followup.send(embed=embed)
 
     # ==========================================
     #             SERVER INFRASTRUCTURE
@@ -33,6 +92,13 @@ class CloneCog(commands.GroupCog, name="clone"):
     )
     @app_commands.checks.has_permissions(administrator=True)
     async def clone_server(self, interaction: discord.Interaction, source_guild_id: str, clear_server: bool = False):
+        # Strict Pre-flight Check
+        if not interaction.guild.me.guild_permissions.administrator:
+            return await interaction.response.send_message(
+                "❌ **Critical Error:** I require the `Administrator` permission in this target server to clone private channels and roles. Please go to Server Settings -> Roles, grant my bot role Administrator, and try again.", 
+                ephemeral=True
+            )
+
         await interaction.response.defer(thinking=True)
 
         try:
@@ -49,21 +115,29 @@ class CloneCog(commands.GroupCog, name="clone"):
         if source_guild.id == target_guild.id:
             return await interaction.followup.send("❌ Source and target servers cannot be the same.")
 
-        status_msg = f"⏳ Starting server clone/sync from **{source_guild.name}**...\n*This might take a few minutes.*"
+        status_msg = f"⏳ Starting server clone/sync from **{source_guild.name}**...\n*This might take a few minutes to respect Discord rate limits.*"
         await interaction.followup.send(status_msg)
+
+        error_log = []
 
         # --- 0. WIPE TARGET SERVER (IF REQUESTED) ---
         if clear_server:
             save_channel = interaction.channel.parent if isinstance(interaction.channel, discord.Thread) else interaction.channel
             for channel in target_guild.channels:
                 if channel.id != save_channel.id:
-                    try: await channel.delete()
-                    except: pass
+                    try: 
+                        await channel.delete()
+                        await asyncio.sleep(0.5) # Rate limit pacing
+                    except Exception as e: 
+                        error_log.append(f"[Clear] Failed to delete channel {channel.name}: {e}")
             
             for role in target_guild.roles:
                 if not role.is_default() and not role.managed and role < target_guild.me.top_role:
-                    try: await role.delete()
-                    except: pass
+                    try: 
+                        await role.delete()
+                        await asyncio.sleep(0.3) # Rate limit pacing
+                    except Exception as e: 
+                        error_log.append(f"[Clear] Failed to delete role {role.name}: {e}")
 
         # --- 1. CLONE / SYNC ROLES ---
         role_map = {} 
@@ -86,10 +160,9 @@ class CloneCog(commands.GroupCog, name="clone"):
                         reason=f"Cloned from {source_guild.name}"
                     )
                     role_map[src_role.id] = new_role
-            except discord.Forbidden:
-                pass 
-            except discord.HTTPException:
-                pass
+                await asyncio.sleep(0.4) # Rate limit pacing
+            except Exception as e:
+                error_log.append(f"[Roles] Failed to clone/sync role '{src_role.name}': {e}")
 
         # --- 2. CLONE / SYNC CATEGORIES ---
         category_map = {} 
@@ -107,8 +180,9 @@ class CloneCog(commands.GroupCog, name="clone"):
                         name=src_cat.name, overwrites=new_overwrites, position=src_cat.position
                     )
                     category_map[src_cat.id] = new_category
+                await asyncio.sleep(0.5) # Rate limit pacing
             except Exception as e:
-                print(f"Failed to clone/sync category {src_cat.name}: {e}")
+                error_log.append(f"[Categories] Failed to clone/sync category '{src_cat.name}': {e}")
 
         # --- 3. CLONE / SYNC CHANNELS ---
         for src_chan in source_guild.channels:
@@ -117,12 +191,9 @@ class CloneCog(commands.GroupCog, name="clone"):
 
             target_cat = category_map.get(src_chan.category_id)
             new_overwrites = self._map_overwrites(src_chan.overwrites, role_map, target_guild)
-            
-            # Find if this channel already exists in the destination
             existing_chan = discord.utils.get(target_guild.channels, name=src_chan.name, type=src_chan.type)
 
             try:
-                # Sync settings if it exists
                 if existing_chan:
                     kwargs = {'category': target_cat, 'overwrites': new_overwrites, 'position': src_chan.position}
                     if hasattr(src_chan, 'topic'): kwargs['topic'] = src_chan.topic
@@ -132,8 +203,6 @@ class CloneCog(commands.GroupCog, name="clone"):
                     if hasattr(src_chan, 'bitrate'): kwargs['bitrate'] = src_chan.bitrate
                     
                     await existing_chan.edit(**kwargs)
-
-                # Create if it doesn't exist
                 else:
                     if isinstance(src_chan, discord.TextChannel):
                         await target_guild.create_text_channel(
@@ -150,11 +219,20 @@ class CloneCog(commands.GroupCog, name="clone"):
                             name=src_chan.name, category=target_cat, overwrites=new_overwrites,
                             position=src_chan.position, topic=src_chan.topic
                         )
+                await asyncio.sleep(0.6) # Channel endpoints are heavily rate limited, pace slower
             except Exception as e:
-                print(f"Failed to clone/sync channel {src_chan.name}: {e}")
+                error_log.append(f"[Channels] Failed to clone/sync channel '{src_chan.name}': {e}")
 
-        final_msg = f"✅ **Sync Complete!** Roles, categories, private channels, and settings match **{source_guild.name}**."
-        await interaction.edit_original_response(content=final_msg)
+        # --- 4. FINAL REPORTING ---
+        final_msg = f"✅ **Sync Complete!** Roles, categories, and channels match **{source_guild.name}**."
+        
+        if error_log:
+            final_msg += f"\n⚠️ Encountered {len(error_log)} errors during the process. See the attached log."
+            report_text = "\n".join(error_log)
+            file = discord.File(io.BytesIO(report_text.encode('utf-8')), filename="clone_errors.txt")
+            await interaction.edit_original_response(content=final_msg, attachments=[file])
+        else:
+            await interaction.edit_original_response(content=final_msg)
 
     # ==========================================
     #             MESSAGE CLONING
@@ -165,7 +243,8 @@ class CloneCog(commands.GroupCog, name="clone"):
         source_guild_id="The ID of the server you want to copy FROM",
         scope="Copy just this channel, or entire server?",
         filter_type="What kind of messages to clone?",
-        limit="Max amount of messages to copy per channel (0 for unlimited)"
+        limit="Max amount of messages to copy per channel (0 for unlimited)",
+        create_backup="Download the channel history into a markdown/media backup as well?"
     )
     @app_commands.choices(
         scope=[
@@ -180,7 +259,7 @@ class CloneCog(commands.GroupCog, name="clone"):
         ]
     )
     @app_commands.checks.has_permissions(administrator=True)
-    async def clone_messages(self, interaction: discord.Interaction, source_guild_id: str, scope: app_commands.Choice[str], filter_type: app_commands.Choice[str], limit: int = 50):
+    async def clone_messages(self, interaction: discord.Interaction, source_guild_id: str, scope: app_commands.Choice[str], filter_type: app_commands.Choice[str], limit: int = 50, create_backup: bool = False):
         await interaction.response.defer(thinking=True)
 
         try:
@@ -232,6 +311,19 @@ class CloneCog(commands.GroupCog, name="clone"):
                 if not messages:
                     continue
 
+                # Prepare Backup Environment if requested
+                md_file_path = None
+                media_dir = None
+                if create_backup:
+                    safe_chan_name = re.sub(r'[\\/*?:"<>|]', "", src_chan.name)
+                    backup_dir = os.path.join("data", "backups", str(source_guild.id), safe_chan_name)
+                    media_dir = os.path.join(backup_dir, "media")
+                    os.makedirs(media_dir, exist_ok=True)
+                    md_file_path = os.path.join(backup_dir, "chatlog.md")
+                    
+                    with open(md_file_path, "w", encoding="utf-8") as f:
+                        f.write(f"# Backup of {src_chan.name} from {source_guild.name}\n\n")
+
                 # Prepare Webhook for impersonation
                 webhook = None
                 if tgt_chan.permissions_for(interaction.guild.me).manage_webhooks:
@@ -247,14 +339,51 @@ class CloneCog(commands.GroupCog, name="clone"):
                     if not msg.content and not msg.attachments and not msg.embeds:
                         continue
 
-                    # Read bytes into memory so we can recreate the File object upon retries
+                    # Read bytes into memory so we can recreate the File object upon retries / save locally
                     file_data = []
                     for att in msg.attachments:
                         if att.size <= 25 * 1024 * 1024:
                             try:
                                 file_bytes = await att.read()
-                                file_data.append((file_bytes, att.filename))
+                                file_data.append((file_bytes, att.filename, att.id))
                             except: pass
+
+                    # Local Markdown Formatting / Save File
+                    if create_backup and md_file_path and media_dir:
+                        with open(md_file_path, 'a', encoding='utf-8') as f:
+                            dt = msg.created_at
+                            timestamp = f"{dt.month}/{dt.day}/{dt.strftime('%y')}, {dt.strftime('%I:%M %p').lstrip('0')}"
+                            
+                            f.write(f"## {msg.author.display_name} — {timestamp}\n")
+                            if msg.content:
+                                f.write(f"{msg.content}\n\n")
+                            
+                            # Embed and Download Files
+                            for att_bytes, att_filename, att_id in file_data:
+                                safe_filename = f"{msg.id}_{att_id}_{att_filename}"
+                                media_filepath = os.path.join(media_dir, safe_filename)
+                                with open(media_filepath, "wb") as img_file:
+                                    img_file.write(att_bytes)
+                                
+                                lower_name = att_filename.lower()
+                                if lower_name.endswith(('.png', '.jpg', '.jpeg', '.gif', '.webp')):
+                                    f.write(f"![{att_filename}](media/{safe_filename})\n\n")
+                                else:
+                                    f.write(f"[{att_filename}](media/{safe_filename})\n\n")
+                                    
+                            # Note missing attachments
+                            for att in msg.attachments:
+                                if att.size > 25 * 1024 * 1024:
+                                    f.write(f"*[Attachment too large to backup: {att.filename}]({att.url})*\n\n")
+                            
+                            # Rip Embeds
+                            for em in msg.embeds:
+                                if em.description:
+                                    f.write(f"> {em.description}\n\n")
+                                if em.image and em.image.url:
+                                    f.write(f"*[Embed Image: {em.image.url}]*\n\n")
+                            
+                            f.write("\n")
 
                     safe_mentions = discord.AllowedMentions.none()
                     
@@ -263,7 +392,7 @@ class CloneCog(commands.GroupCog, name="clone"):
                     for attempt in range(max_retries):
                         
                         # Re-instantiate discord.File objects so they aren't consumed in previous failed attempts
-                        files = [discord.File(io.BytesIO(b), filename=fn) for b, fn in file_data]
+                        files = [discord.File(io.BytesIO(b), filename=fn) for b, fn, _id in file_data]
 
                         try:
                             start_time = time.time()
@@ -297,7 +426,7 @@ class CloneCog(commands.GroupCog, name="clone"):
                             # We proactively slow down to stop spamming the console with warnings.
                             elapsed = time.time() - start_time
                             if elapsed > 1.5:
-                                base_delay = min(base_delay * 1.5, 15.0) 
+                                base_delay = min(base_delay * 1.5, 10.0) 
                             else:
                                 base_delay = max(1.0, base_delay * 0.9) 
 
@@ -311,8 +440,9 @@ class CloneCog(commands.GroupCog, name="clone"):
                             
                         except discord.HTTPException as e:
                             if e.status == 429: # Explicit Rate Limit
-                                backoff_time = (2 ** attempt) + random.uniform(0.5, 2.0)
-                                print(f"[Clone] Explicit 429 Rate Limit. Exponential backoff: sleeping {backoff_time:.2f}s")
+                                # Softer exponential backoff: 1.5^attempt instead of 2^attempt
+                                backoff_time = (1.5 ** attempt) + random.uniform(1.0, 3.0)
+                                print(f"[Clone] Explicit 429 Rate Limit. Soft exponential backoff: sleeping {backoff_time:.2f}s")
                                 await asyncio.sleep(backoff_time)
                             else:
                                 print(f"[Clone] Failed to clone message {msg.id}: {e}")
@@ -325,7 +455,10 @@ class CloneCog(commands.GroupCog, name="clone"):
                     await webhook.delete()
 
                 if copied_count > 0:
-                    await interaction.channel.send(f"✅ Successfully cloned **{copied_count}** messages in {tgt_chan.mention}.")
+                    status = f"✅ Successfully cloned **{copied_count}** messages in {tgt_chan.mention}."
+                    if create_backup:
+                        status += f"\n📁 *Backup successfully saved locally to `data/backups/`*"
+                    await interaction.channel.send(status)
 
             except discord.Forbidden:
                 await interaction.channel.send(f"⚠️ Missing permissions to read {src_chan.name} or write to {tgt_chan.mention}.")

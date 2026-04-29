@@ -178,3 +178,31 @@ class UserLastSeen(SQLModel, table=True):
     guild_id: str = Field(primary_key=True)
     user_id: str = Field(primary_key=True)
     last_seen_at: int
+
+class Movie(SQLModel, table=True):
+    __tablename__ = "movies"
+    id: int = Field(primary_key=True)
+    title: str = Field(index=True)
+    vote_average: float = Field(default=0.0)
+    vote_count: int = Field(default=0)
+    status: Optional[str] = None
+    release_date: Optional[str] = None
+    revenue: int = Field(default=0)
+    runtime: int = Field(default=0)
+    adult: Optional[str] = None
+    backdrop_path: Optional[str] = None
+    budget: int = Field(default=0)
+    homepage: Optional[str] = None
+    imdb_id: Optional[str] = None
+    original_language: Optional[str] = None
+    original_title: Optional[str] = None
+    overview: Optional[str] = None
+    popularity: float = Field(default=0.0)
+    poster_path: Optional[str] = None
+    tagline: Optional[str] = None
+    genres: Optional[str] = None
+    production_companies: Optional[str] = None
+    production_countries: Optional[str] = None
+    spoken_languages: Optional[str] = None
+    keywords: Optional[str] = None
+
