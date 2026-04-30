@@ -1,3 +1,5 @@
+"""database.py"""
+
 import os
 import time
 import csv
@@ -41,7 +43,7 @@ class DatabaseController:
     @staticmethod
     async def load_movies_from_csv():
         """Reads TMDB CSV and populates database efficiently if empty."""
-        csv_path = "./static/csv/TMDB_movie_dataset.csv"
+        csv_path = "./data/csv/TMDB_movie_dataset.csv"
         if not os.path.exists(csv_path):
             logger.warning(f"Movie CSV not found at {csv_path}. Skipping movie load.")
             return
@@ -124,7 +126,7 @@ class DatabaseController:
                 logger.error(f"Failed to load movies: {e}")
                 await session.rollback()
         """Reads TMDB CSV and populates database efficiently if empty."""
-        csv_path = "./static/csv/TMDB_movie_dataset.csv"
+        csv_path = "./data/csv/TMDB_movie_dataset.csv"
         if not os.path.exists(csv_path):
             logger.warning(f"Movie CSV not found at {csv_path}. Skipping movie load.")
             return
@@ -298,12 +300,16 @@ class DatabaseController:
                 session.add(obj)
             await session.commit()
 
-    # --- REST OF METHODS ---
+    # --- Aid methods ---
     @staticmethod
-    async def create_aid(guild_id: str, channel_id: str, user_id: str, amount: float, description: str):
+    async def create_aid(guild_id: str, channel_id: str, user_id: str, name: str, amount: float, description: str):
         now = int(time.time())
         next_reminder = now + 86400
-        obj = Aid(guild_id=guild_id, channel_id=channel_id, user_id=user_id, amount_requested=amount, reason=description, created_at=now, next_reminder_at=next_reminder)
+        obj = Aid(
+            guild_id=guild_id, channel_id=channel_id, user_id=user_id, 
+            name=name, amount_requested=amount, reason=description, 
+            created_at=now, next_reminder_at=next_reminder
+        )
         async with AsyncSession(engine) as session:
             session.add(obj)
             await session.commit()
@@ -360,7 +366,7 @@ class DatabaseController:
             return True
 
     @staticmethod
-    async def clear_all(guild_id: str):
+    async def clear_all_aids(guild_id: str):
         async with AsyncSession(engine) as session:
             stmt = select(Aid).where(
                 Aid.status == 'active',
@@ -405,6 +411,93 @@ class DatabaseController:
                 return (obj.id, obj.guild_id, obj.channel_id, obj.user_id, obj.amount_requested, obj.amount_received, obj.reason)
             return None
 
+    @staticmethod
+    async def check_aid_name_exists(guild_id: str, name: str) -> bool:
+        async with AsyncSession(engine) as session:
+            stmt = select(Aid).where(
+                Aid.guild_id == guild_id, 
+                func.lower(Aid.name) == name.lower(),
+                Aid.status == 'active'
+            )
+            result = await session.execute(stmt)
+            return result.scalar_one_or_none() is not None
+
+    @staticmethod
+    async def search_aid_names(guild_id: str, query: str):
+        async with AsyncSession(engine) as session:
+            stmt = select(Aid.name).where(
+                Aid.guild_id == guild_id,
+                Aid.name.ilike(f"%{query}%")
+            ).limit(25)
+            result = await session.execute(stmt)
+            return result.scalars().all()
+
+    @staticmethod
+    async def get_aid_by_name(guild_id: str, name: str):
+        async with AsyncSession(engine) as session:
+            stmt = select(Aid).where(
+                Aid.guild_id == guild_id,
+                func.lower(Aid.name) == name.lower()
+            )
+            result = await session.execute(stmt)
+            obj = result.scalar_one_or_none()
+            if obj:
+                return (obj.name, obj.user_id, obj.amount_requested, obj.amount_received, obj.reason, obj.status)
+            return None
+
+    @staticmethod
+    async def get_aid_name_by_id(aid_id: int):
+        async with AsyncSession(engine) as session:
+            obj = await session.get(Aid, aid_id)
+            return obj.name if obj else None
+
+    @staticmethod
+    async def update_aid_progress_by_name(guild_id: str, name: str, new_total: float, status: str = 'active'):
+        async with AsyncSession(engine) as session:
+            stmt = select(Aid).where(Aid.guild_id == guild_id, func.lower(Aid.name) == name.lower())
+            result = await session.execute(stmt)
+            obj = result.scalar_one_or_none()
+            if obj:
+                obj.amount_received = new_total
+                obj.status = status
+                await session.commit()
+
+    @staticmethod
+    async def edit_aid(guild_id: str, old_name: str, new_name: str = None, amount: float = None, description: str = None):
+        async with AsyncSession(engine) as session:
+            stmt = select(Aid).where(Aid.guild_id == guild_id, func.lower(Aid.name) == old_name.lower())
+            result = await session.execute(stmt)
+            obj = result.scalar_one_or_none()
+            if obj:
+                if new_name is not None: obj.name = new_name
+                if amount is not None: obj.amount_requested = amount
+                if description is not None: obj.reason = description
+                await session.commit()
+                return True
+            return False
+
+    @staticmethod
+    async def delete_aid_by_name(guild_id: str, name: str):
+        async with AsyncSession(engine) as session:
+            stmt = select(Aid).where(Aid.guild_id == guild_id, func.lower(Aid.name) == name.lower())
+            result = await session.execute(stmt)
+            obj = result.scalar_one_or_none()
+            if not obj:
+                return False
+            obj.status = 'deleted'
+            await session.commit()
+            return True
+
+    @staticmethod
+    async def get_aids_by_status(guild_id: str, status: str = None):
+        async with AsyncSession(engine) as session:
+            stmt = select(Aid).where(or_(Aid.guild_id == guild_id, Aid.guild_id == None))
+            if status:
+                stmt = stmt.where(Aid.status == status)
+            result = await session.execute(stmt)
+            return [(obj.name, obj.user_id, obj.amount_requested, obj.amount_received, obj.reason, obj.status, obj.created_at) for obj in result.scalars().all()]
+    #
+    # CRP 
     @staticmethod
     async def setup_indexes():
         pass

@@ -1,3 +1,5 @@
+"""models.py"""
+
 
 from typing import Optional
 from sqlmodel import SQLModel, Field
@@ -18,6 +20,7 @@ class Aid(SQLModel, table=True):
     __tablename__ = "aids"
     id: Optional[int] = Field(default=None, primary_key=True)
     guild_id: Optional[str] = None
+    name: Optional[str] = Field(default=None, index=True)
     channel_id: Optional[str] = None
     user_id: Optional[str] = None
     amount_requested: Optional[float] = None

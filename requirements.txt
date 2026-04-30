@@ -1,5 +1,5 @@
 # requirements.txt
-moviepy==1.0.3
+# moviepy==1.0.3 videomaker.py cog not in use
 numpy==1.26.4
 discord.py==2.3.2
 python-dotenv==1.0.1

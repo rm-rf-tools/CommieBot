@@ -1,3 +1,5 @@
+"""import_movies.py"""
+
 import asyncio
 import csv
 import os
@@ -20,7 +22,7 @@ async def import_data():
         print("Clearing old movie data...")
         await conn.execute(text("DELETE FROM movies"))
         
-    csv_path = "./static/csv/TMDB_movie_dataset.csv"
+    csv_path = "./data/csv/TMDB_movie_dataset.csv"
     if not os.path.exists(csv_path):
         print(f"Error: CSV not found at {csv_path}")
         return

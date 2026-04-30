@@ -94,8 +94,8 @@ class CRPCog(commands.GroupCog, name="crp"):
 
     # --- CONFIG COMMANDS
     @setup_group.command(name="setup", description="Set the role allowed to manage CRP")
-    @setup_group.describe(role="The role allowed to use CRP commands")
-    @setup_group.checks.has_permissions(manage_guild=True)
+    @app_commands.describe(role="The role allowed to use CRP commands")
+    @app_commands.checks.has_permissions(manage_guild=True)
     async def setup_role(self, interaction: discord.Interaction, role: discord.Role):
         await DatabaseController.set_crp_role(str(interaction.guild_id), str(role.id))
         await interaction.response.send_message(f"✅ CRP Management role set to {role.mention}.", ephemeral=True)
