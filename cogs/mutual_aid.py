@@ -152,7 +152,8 @@ class ContributionView(discord.ui.View):
 class AidPaginator(discord.ui.View):
     def __init__(self, aids: list, list_type: str):
         super().__init__(timeout=300)
-        self.aids = aids
+        # Sort by creation timestamp descending (newest first)
+        self.aids = sorted(aids, key=lambda r: r[6], reverse=True)
         self.list_type = list_type
         self.current_page = 0
         self.per_page = 5

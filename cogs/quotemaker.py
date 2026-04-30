@@ -233,9 +233,20 @@ def clean_name(name: str) -> str:
 def display_name(name: str) -> str:
     return name.replace("_", " ").title()
 
-class QuoteMaker(commands.Cog):
+class QuoteMaker(commands.GroupCog, name="quote"):
     def __init__(self, bot):
         self.bot = bot
+
+    async def cog_app_command_error(self, interaction: discord.Interaction, error: app_commands.AppCommandError):
+        if interaction.response.is_done():
+            send = interaction.followup.send
+        else:
+            send = interaction.response.send_message
+            
+        if isinstance(error, app_commands.MissingPermissions):
+            await send(f"❌ **Permission Denied:** {error}", ephemeral=True)
+        else:
+            await send(f"❌ An unexpected error occurred: {error}", ephemeral=True)
 
     def process_and_save_image(self, image_bytes: bytes, filename: str) -> str:
         """Crops, resizes, and darkens the uploaded image, then saves it to disk."""
@@ -285,13 +296,13 @@ class QuoteMaker(commands.Cog):
         img = img.resize(target_size, Image.Resampling.LANCZOS)
         return ImageEnhance.Brightness(img).enhance(IMAGE_DARKEN_FACTOR)
 
-    @app_commands.command(name="quoteuser", description="Generate a quote from a user's profile picture.")
+    @app_commands.command(name="user", description="Generate a quote from a user's profile picture.")
     @app_commands.describe(user="The user to quote", quote="The text to quote", layout="Visual style")
     @app_commands.choices(layout=[
         app_commands.Choice(name="Classic (Centered)", value="classic"),
         app_commands.Choice(name="Modern (Left Fade)", value="fade")
     ])
-    async def quoteuser(self, interaction: discord.Interaction, user: discord.Member, quote: str, layout: app_commands.Choice[str] = None):
+    async def quote_user(self, interaction: discord.Interaction, user: discord.Member, quote: str, layout: app_commands.Choice[str] = None):
         await interaction.response.defer()
         try:
             avatar_bytes = await user.display_avatar.with_size(1024).read()
@@ -323,9 +334,10 @@ class QuoteMaker(commands.Cog):
                 choices.append(app_commands.Choice(name=pretty_name, value=db_name))
         return choices[:25]
 
-    @app_commands.command(name="quoteadd", description="Add a new quote background template.")
+    @app_commands.command(name="add", description="Add a new quote background template.")
     @app_commands.describe(name="Name for this template (e.g. Karl Marx)", photo="The background image to crop and save")
-    async def quoteadd(self, interaction: discord.Interaction, name: str, photo: discord.Attachment):
+    @app_commands.checks.has_permissions(manage_guild=True)
+    async def quote_add(self, interaction: discord.Interaction, name: str, photo: discord.Attachment):
         if not photo.content_type or not photo.content_type.startswith('image/'):
             return await interaction.response.send_message("❌ Please upload a valid image file.", ephemeral=True)
 
@@ -341,8 +353,8 @@ class QuoteMaker(commands.Cog):
         except Exception as e:
             await interaction.followup.send(f"❌ Failed to process the image: {e}")
 
-    @app_commands.command(name="quotelist", description="List all available quote background templates.")
-    async def quotelist(self, interaction: discord.Interaction):
+    @app_commands.command(name="list", description="List all available quote background templates.")
+    async def quote_list(self, interaction: discord.Interaction):
         templates = await DatabaseController.get_all_quote_templates()
         if not templates:
             return await interaction.response.send_message("There are currently no templates.", ephemeral=True)
@@ -351,7 +363,7 @@ class QuoteMaker(commands.Cog):
         embed = discord.Embed(title="Available Quote Templates", description=template_list, color=discord.Color.blue())
         await interaction.response.send_message(embed=embed)
 
-    @app_commands.command(name="quotegen", description="Generate a quote image.")
+    @app_commands.command(name="generate", description="Generate a quote image using a saved template.")
     @app_commands.describe(
         name="The template name (start typing to search)", 
         quote="The quote text",
@@ -362,7 +374,7 @@ class QuoteMaker(commands.Cog):
         app_commands.Choice(name="Classic (Centered)", value="classic"),
         app_commands.Choice(name="Modern (Left Fade)", value="fade")
     ])
-    async def quotegen(self, interaction: discord.Interaction, name: str, quote: str, layout: app_commands.Choice[str] = None):
+    async def quote_generate(self, interaction: discord.Interaction, name: str, quote: str, layout: app_commands.Choice[str] = None):
         db_name = clean_name(name)
         pretty_name = display_name(db_name)
         template_path = await DatabaseController.get_quote_template(db_name)
@@ -386,10 +398,11 @@ class QuoteMaker(commands.Cog):
         except Exception as e:
             await interaction.followup.send(f"❌ Failed to generate quote: {e}")
 
-    @app_commands.command(name="quotedelete", description="Remove a quote background template.")
+    @app_commands.command(name="delete", description="Remove a quote background template.")
     @app_commands.describe(name="The template to delete (start typing to search)")
     @app_commands.autocomplete(name=template_autocomplete)
-    async def quotedelete(self, interaction: discord.Interaction, name: str):
+    @app_commands.checks.has_permissions(manage_guild=True)
+    async def quote_delete(self, interaction: discord.Interaction, name: str):
         db_name = clean_name(name)
         pretty_name = display_name(db_name)
         
