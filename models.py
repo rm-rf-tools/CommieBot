@@ -206,3 +206,19 @@ class Movie(SQLModel, table=True):
     spoken_languages: Optional[str] = None
     keywords: Optional[str] = None
 
+# --- React Roles Models ---
+class RolePlan(SQLModel, table=True):
+    __tablename__ = "role_plans"
+    id: Optional[int] = Field(default=None, primary_key=True)
+    guild_id: str
+    name: str
+
+class RolePlanItem(SQLModel, table=True):
+    __tablename__ = "role_plan_items"
+    id: Optional[int] = Field(default=None, primary_key=True)
+    plan_id: int = Field(foreign_key="role_plans.id", ondelete="CASCADE")
+    role_name: str
+    role_color: Optional[int] = Field(default=0)
+    emoji: Optional[str] = None
+    category: Optional[str] = Field(default="General")
+    description: Optional[str] = None

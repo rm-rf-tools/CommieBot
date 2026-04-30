@@ -12,7 +12,8 @@ from models import (
     ServerConfig, Aid, Committee, CommitteeAssignment, QuoteTemplate, Ticket, 
     TicketStaffRole, Profile, Skill, ProfileSkill, Event, EventAttendance,
     Applicant, FormTemplate, FormQuestion, FormSubmission, FormAnswer,
-    ModWatch, ModLogConfig, FocusChannel, GrokReply, UserLastSeen, Movie
+    ModWatch, ModLogConfig, FocusChannel, GrokReply, UserLastSeen, Movie,
+    RolePlan, RolePlanItem
 )
 
 DB_PATH = "./data/mutual_aid.db"
@@ -1222,3 +1223,114 @@ class DatabaseController:
             total = result.scalar_one_or_none()
             
             return total if total is not None else 0.0
+
+    # --- REACT ROLES ---
+    @staticmethod
+    async def create_role_plan(guild_id: str, name: str) -> Optional[int]:
+        async with AsyncSession(engine) as session:
+            stmt = select(RolePlan).where(RolePlan.guild_id == guild_id, func.lower(RolePlan.name) == name.lower())
+            res = await session.execute(stmt)
+            if res.scalar_one_or_none():
+                return None 
+            
+            plan = RolePlan(guild_id=guild_id, name=name)
+            session.add(plan)
+            await session.commit()
+            await session.refresh(plan)
+            return plan.id
+
+    @staticmethod
+    async def get_role_plan_by_name(guild_id: str, name: str):
+        async with AsyncSession(engine) as session:
+            stmt = select(RolePlan).where(RolePlan.guild_id == guild_id, func.lower(RolePlan.name) == name.lower())
+            result = await session.execute(stmt)
+            return result.scalar_one_or_none()
+
+    @staticmethod
+    async def delete_role_plan(plan_id: int):
+        async with AsyncSession(engine) as session:
+            obj = await session.get(RolePlan, plan_id)
+            if obj:
+                await session.delete(obj)
+                await session.commit()
+
+    @staticmethod
+    async def add_role_plan_item(plan_id: int, role_name: str, category: str, color: int, emoji: str, description: str):
+        async with AsyncSession(engine) as session:
+            item = RolePlanItem(plan_id=plan_id, role_name=role_name, category=category, role_color=color, emoji=emoji, description=description)
+            session.add(item)
+            await session.commit()
+
+    @staticmethod
+    async def get_role_plan_items(plan_id: int):
+        async with AsyncSession(engine) as session:
+            stmt = select(RolePlanItem).where(RolePlanItem.plan_id == plan_id).order_by(RolePlanItem.id.asc())
+            result = await session.execute(stmt)
+            return result.scalars().all()
+            
+    @staticmethod
+    async def get_all_role_plans(guild_id: str):
+        async with AsyncSession(engine) as session:
+            stmt = select(RolePlan).where(RolePlan.guild_id == guild_id).order_by(RolePlan.name.asc())
+            result = await session.execute(stmt)
+            return result.scalars().all()
+
+    @staticmethod
+    async def delete_role_plan_item(item_id: int):
+        """Deletes a single role configuration from a plan without touching Discord roles."""
+        async with AsyncSession(engine) as session:
+            obj = await session.get(RolePlanItem, item_id)
+            if obj:
+                await session.delete(obj)
+                await session.commit()
+
+    @staticmethod
+    async def update_role_plan_item(item_id: int, role_name: str, category: str, color: int, emoji: str, description: str):
+        """Updates a single role configuration in a plan."""
+        async with AsyncSession(engine) as session:
+            obj = await session.get(RolePlanItem, item_id)
+            if obj:
+                obj.role_name = role_name
+                obj.category = category
+                obj.role_color = color
+                obj.emoji = emoji
+                obj.description = description
+                await session.commit()
+
+    @staticmethod
+    async def delete_role_plan(plan_id: int):
+        async with AsyncSession(engine) as session:
+            # Manually cascade delete to fix SQLite leaving ghost rows
+            items_stmt = select(RolePlanItem).where(RolePlanItem.plan_id == plan_id)
+            items = await session.execute(items_stmt)
+            for item in items.scalars().all():
+                await session.delete(item)
+                
+            obj = await session.get(RolePlan, plan_id)
+            if obj:
+                await session.delete(obj)
+                
+            await session.commit()
+
+    @staticmethod
+    async def cleanup_orphaned_role_items():
+        """Cleans up any ghost items left behind by previous SQLite cascade failures."""
+        async with AsyncSession(engine) as session:
+            # Find all plan IDs that actually exist
+            valid_plans = await session.execute(select(RolePlan.id))
+            valid_plan_ids = [r for r in valid_plans.scalars().all()]
+            
+            # Find items whose plan_id is NOT in valid_plan_ids
+            stmt = select(RolePlanItem)
+            if valid_plan_ids:
+                stmt = stmt.where(RolePlanItem.plan_id.not_in(valid_plan_ids))
+                
+            orphans = await session.execute(stmt)
+            count = 0
+            for orphan in orphans.scalars().all():
+                await session.delete(orphan)
+                count += 1
+                
+            if count > 0:
+                await session.commit()
+            return count

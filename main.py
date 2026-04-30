@@ -38,6 +38,7 @@ class MutualAidBot(commands.Bot):
         await self.load_extension("cogs.emoji")
         await self.load_extension("cogs.clone")
         await self.load_extension("cogs.film")
+        await self.load_extension("cogs.roles")
         
         await self.tree.sync()
         print("Slash commands synced and database initialized.")
