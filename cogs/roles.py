@@ -1,3 +1,5 @@
+"""roles.py"""
+
 # cogs/roles.py
 import discord
 from discord import app_commands

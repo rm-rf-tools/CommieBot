@@ -1,3 +1,5 @@
+"""reminders.py"""
+
 # cogs/reminders.py
 import discord
 from discord.ext import commands, tasks

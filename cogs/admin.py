@@ -1,3 +1,5 @@
+"""admin.py"""
+
 import discord
 from discord import app_commands
 from discord.ext import commands
@@ -234,44 +236,6 @@ class AdminCommands(commands.Cog):
 
         await interaction.response.send_message("✅ Sticky message removed.", ephemeral=True)
 
-
-    # ==========================================
-    #            SERVER MANAGEMENT 
-    # ==========================================
-
-    @app_commands.command(name="crprole", description="Set the role allowed to manage committees and roles.")
-    @app_commands.describe(role="The role allowed to use CRP commands")
-    @app_commands.checks.has_permissions(manage_guild=True)
-    async def crprole(self, interaction: discord.Interaction, role: discord.Role):
-        await DatabaseController.set_crp_role(str(interaction.guild_id), str(role.id))
-        await interaction.response.send_message(f"✅ CRP Management role set to {role.mention}.", ephemeral=True)
-
-    @app_commands.command(name="aidrole", description="Set the role to ping for new mutual aid requests (Admins).")
-    @app_commands.describe(role="The server role to ping")
-    @app_commands.checks.has_permissions(manage_guild=True)
-    async def aidrole(self, interaction: discord.Interaction, role: discord.Role):
-        await DatabaseController.set_role(str(interaction.guild_id), str(role.id))
-        await interaction.response.send_message(f"✅ The mutual aid ping role has been successfully set to {role.mention}.", ephemeral=True)
-
-
-    # ==========================================
-    #            MUTUAL AID ADMIN 
-    # ==========================================
-
-    @app_commands.command(name="deleteaid", description="Delete a specific aid request.")
-    @app_commands.describe(aid_id="The ID of the aid request to delete")
-    @app_commands.checks.has_permissions(manage_messages=True)
-    async def deleteaid(self, interaction: discord.Interaction, aid_id: int):
-        success = await DatabaseController.delete_aid(aid_id, str(interaction.guild_id))
-        if not success:
-            return await interaction.response.send_message(f"❌ Aid request #{aid_id} not found or is already inactive.", ephemeral=True)
-        await interaction.response.send_message(f"🗑️ Aid request **#{aid_id}** has been manually deleted.")
-
-    @app_commands.command(name="clearaids", description="Clear all active aid requests.")
-    @app_commands.checks.has_permissions(manage_messages=True)
-    async def clearaids(self, interaction: discord.Interaction):
-        await DatabaseController.clear_all(str(interaction.guild_id))
-        await interaction.response.send_message("🚨 All active aid requests in this server have been cleared from the queue.")
 
 
     # ==========================================

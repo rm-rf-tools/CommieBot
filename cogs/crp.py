@@ -1,3 +1,5 @@
+"""crp.py"""
+
 import discord
 from discord import app_commands
 from discord.ext import commands
@@ -88,8 +90,15 @@ class CRPCog(commands.GroupCog, name="crp"):
     # Subgroups
     committee_group = app_commands.Group(name="committee", description="Committee management commands")
     role_group = app_commands.Group(name="role", description="Role management commands")
+    setup_group = app_commands.Group(name="setup", description="Discord setup commands")
 
-
+    # --- CONFIG COMMANDS
+    @setup_group.command(name="setup", description="Set the role allowed to manage CRP")
+    @setup_group.describe(role="The role allowed to use CRP commands")
+    @setup_group.checks.has_permissions(manage_guild=True)
+    async def setup_role(self, interaction: discord.Interaction, role: discord.Role):
+        await DatabaseController.set_crp_role(str(interaction.guild_id), str(role.id))
+        await interaction.response.send_message(f"✅ CRP Management role set to {role.mention}.", ephemeral=True)
     # --- COMMITTEE COMMANDS 
 
     @committee_group.command(name="create", description="Create a new committee.")

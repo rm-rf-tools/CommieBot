@@ -1,3 +1,5 @@
+"""skills.py"""
+
 # cogs/skills.py
 import discord
 from discord import app_commands

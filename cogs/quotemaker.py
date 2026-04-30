@@ -1,3 +1,5 @@
+"""quotemaker.py"""
+
 # cogs/quotemaker.py
 import discord
 from discord import app_commands

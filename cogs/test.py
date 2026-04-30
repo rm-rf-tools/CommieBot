@@ -1,3 +1,5 @@
+"""test.py"""
+
 # cogs/test.py
 import discord
 from discord import app_commands
