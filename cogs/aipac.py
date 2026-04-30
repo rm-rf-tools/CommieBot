@@ -1,4 +1,13 @@
-"""aipac.py"""
+"""
+filename: aipac.py
+description: Generates AIPAC-style graphics by removing backgrounds from photos and placing them on a template with dynamic text.
+Views:
+    - None
+Commands:
+    - /aipac add <name> <photo>: Remove background from a photo and save them to the AIPAC roster. (User)
+    - /aipac gen <name>: Generate an AIPAC graphic using a saved person. (User)
+    - /aipac delete <name>: Delete a saved person from the AIPAC roster. (User)
+"""
 
 import discord
 from discord import app_commands

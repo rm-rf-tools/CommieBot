@@ -1,4 +1,15 @@
-"""modlogs.py"""
+"""
+filename: modlogs.py
+description: Server moderation logging system for channel events and keyword tracking in messages.
+Views:
+    - None
+Commands:
+    - /modlogs channel <channel>: Set the channel to receive mod logs. (Admin: Manage Guild)
+    - /modlogs toggle <event> <enabled>: Enable or disable specific logging events (Create/Delete/Rename). (Admin: Manage Guild)
+    - /modlogs words add <word>: Add a word to track in messages. (Admin: Manage Guild)
+    - /modlogs words remove <word>: Remove a tracked word. (Admin: Manage Guild)
+    - /modlogs words list: List all tracked words. (Admin: Manage Guild)
+"""
 
 import discord
 from discord import app_commands

@@ -1,4 +1,13 @@
-"""clone.py"""
+"""
+filename: clone.py
+description: Tools for cloning server infrastructure (roles, categories, channels) and message history from another server.
+Views:
+    - None
+Commands:
+    - /clone diagnose <source_guild_id>: Check if the bot has the correct permissions to clone. (Admin: Administrator)
+    - /clone server <source_guild_id> [clear_server]: Sync and clone roles, categories, and channels. (Admin: Administrator)
+    - /clone messages <source_guild_id> <scope> <filter_type> [limit] [create_backup]: Clone messages, pins, images, or files. (Admin: Administrator)
+"""
 
 import discord
 from discord import app_commands

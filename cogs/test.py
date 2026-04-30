@@ -1,4 +1,11 @@
-"""test.py"""
+"""
+filename: test.py
+description: Developer and admin testing utilities for simulating bot events and debugging systems.
+Views:
+    - None
+Commands:
+    - /testaid <action> <aid_id>: Trigger specific mutual aid logic (like reminders) for testing. (Admin: Manage Guild)
+"""
 
 # cogs/test.py
 import discord

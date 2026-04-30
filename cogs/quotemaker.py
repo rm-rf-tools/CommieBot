@@ -1,4 +1,15 @@
-"""quotemaker.py"""
+"""
+filename: quotemaker.py
+description: Generates high-quality quote images using predefined templates or user profile pictures with multiple layout options.
+Views:
+    - None
+Commands:
+    - /quote user <user> <quote> [layout]: Generate a quote from a user's profile picture. (User)
+    - /quote add <name> <photo>: Add a new quote background template. (Admin: Manage Guild)
+    - /quote list: List all available quote background templates. (User)
+    - /quote generate <name> <quote> [layout]: Generate a quote image using a saved template. (User)
+    - /quote delete <name>: Remove a quote background template. (Admin: Manage Guild)
+"""
 
 # cogs/quotemaker.py
 import discord

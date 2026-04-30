@@ -1,4 +1,15 @@
-"""grok.py"""
+"""
+filename: grok.py
+description: Automated reply system (Grok) that responds to mentions and keywords based on relevance scoring.
+Views:
+    - None
+Commands:
+    - /grok reply add <text> [category] [keywords] [intent]: Add a new automated reply. (Admin: Manage Messages)
+    - /grok reply clear <confirm>: DELETE ALL Grok replies for this server. (Admin: Manage Guild)
+    - /grok reply list: List all configured replies. (Admin: Manage Messages)
+    - /grok reply delete <reply_id>: Delete a specific reply. (Admin: Manage Messages)
+    - /grok json import <file>: Bulk import replies from a JSON file. (Admin: Manage Guild)
+"""
 
 import discord
 from discord import app_commands

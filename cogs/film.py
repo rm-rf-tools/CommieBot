@@ -1,4 +1,11 @@
-"""film.py"""
+"""
+filename: film.py
+description: Search and view movie previews using the TMDB database.
+Views:
+    - MoviePaginator: Handles pagination of movie search results with previous/next buttons.
+Commands:
+    - /film search <query>: Search for a movie and view a beautiful preview card. (User)
+"""
 
 import discord
 from discord import app_commands

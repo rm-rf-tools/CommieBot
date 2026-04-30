@@ -1,4 +1,24 @@
-"""forms.py"""
+"""
+filename: forms.py
+description: Create and manage interactive forms/applications with reviews and automated status updates.
+Views:
+    - RegistrationModal: Initial applicant registration for preferred name and pronouns.
+    - FormWizardView: Navigates through form questions (text, single/multiple choice).
+    - TextAnswerModal: Input modal for text-based form questions.
+    - FeedbackModal: Final step for feedback before form submission.
+    - FormAdminView: Main management interface for admins to see existing forms.
+    - FormDetailView: Interface for editing a specific form's questions and settings.
+    - AddQuestionTypeView: Menu to select question type (text, single, multiple).
+    - FormReviewView: Interface for reviewing and approving/denying pending submissions.
+Commands:
+    - /forms apply <form_name>: Apply for a form/application role. (User)
+    - /forms admin: Open the GUI to manage, create, and edit forms. (Forms Admin / Admin: Manage Guild)
+    - /forms review: Review pending form applications. (Forms Admin / Admin: Manage Guild)
+    - /forms set_role <role>: Set the admin role capable of managing and reviewing forms. (Admin: Manage Guild)
+    - /forms create_cmd <name> <description> [cooldown_days]: Fallback: Create a form via text command. (Forms Admin / Admin: Manage Guild)
+    - /forms add_question_cmd <form_name> <q_type> <text> [options]: Fallback: Add a question via text command. (Forms Admin / Admin: Manage Guild)
+    - /forms delete_cmd <form_name>: Fallback: Delete a form via text command. (Forms Admin / Admin: Manage Guild)
+"""
 
 import discord
 from discord import app_commands

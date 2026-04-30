@@ -1,4 +1,16 @@
-"""focus.py"""
+"""
+filename: focus.py
+description: Focus Mode system that hides/shows channels based on a focus role to reduce distractions.
+Views:
+    - None
+Commands:
+    - /focus toggle <enable>: Enable or disable Focus Mode for yourself. (User)
+    - /focus role set <role>: Set the Focus Mode role. (Admin: Manage Guild)
+    - /focus role remove: Remove the Focus Mode role configuration. (Admin: Manage Guild)
+    - /focus channel add <channel>: Add a channel to the allowed Focus Mode list. (Admin: Manage Guild)
+    - /focus channel remove <channel>: Remove a channel from the allowed Focus Mode list. (Admin: Manage Guild)
+    - /focus sync: Automatically configure all server channel permissions for Focus Mode. (Admin: Manage Guild)
+"""
 
 import discord
 from discord import app_commands

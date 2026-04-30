@@ -1,4 +1,11 @@
-"""videomaker.py"""
+"""
+filename: videomaker.py
+description: Generates video memes by overlaying dynamic text onto predefined video templates using MoviePy.
+Views:
+    - None
+Commands:
+    - /video <template> <text>: Create a video meme from a selection of templates. (User)
+"""
 
 import discord
 from discord import app_commands

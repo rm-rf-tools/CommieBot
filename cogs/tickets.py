@@ -1,4 +1,24 @@
-"""tickets.py"""
+"""
+filename: tickets.py
+description: Complete ticketing and mod-watch system for user support and internal moderation tracking.
+Views:
+    - TicketCreateModal: Modal for users to describe their reason for opening a ticket.
+    - TicketCreateView: Persistent view containing the 'Open Ticket' trigger button.
+    - TicketView: View inside ticket channels for staff/users to close the ticket.
+    - TicketListView: Admin interface for listing active tickets and mass-clearing channels.
+Commands:
+    - /mod ping <description>: Immediately open a support ticket. (User)
+    - /mod ticketbutton: Deploy the persistent 'Open Ticket' button to a channel. (Staff / Admin: Manage Guild)
+    - /mod staff add <role>: Grant a role permission to see and manage tickets. (Admin: Manage Guild)
+    - /mod staff remove <role>: Revoke ticket management permissions from a role. (Admin: Manage Guild)
+    - /mod staff list: List all roles configured as ticket staff. (User)
+    - /mod ticket list: View all currently active tickets. (User)
+    - /mod ticket add <user>: Add a specific user to an active ticket channel. (User/Staff)
+    - /mod ticket close: Close the current ticket and generate a transcript. (User/Staff)
+    - /mod watch add <user> <reason>: Add a user to the internal mod watch list. (Staff)
+    - /mod watch list: View the list of users on the mod watch list. (Staff)
+    - /mod watch remove <user>: Remove a user from the mod watch list. (Staff)
+"""
 
 import discord
 from discord.ext import commands

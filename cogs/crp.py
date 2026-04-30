@@ -1,4 +1,20 @@
-"""crp.py"""
+"""
+filename: crp.py
+description: Committee Role Management (CRP) for managing organizational hierarchies and committee assignments.
+Views:
+    - None
+Commands:
+    - /crp setup setup <role>: Set the role allowed to manage CRP. (Admin: Manage Guild)
+    - /crp committee create <name> [description]: Create a new committee. (CRP Management)
+    - /crp committee edit <old_name> <new_name>: Rename an existing committee. (CRP Management)
+    - /crp committee remove <name>: Delete a committee. (CRP Management)
+    - /crp committee list: List all committees. (CRP Management)
+    - /crp role assign <target> <role> [committee_name]: Assign a role to a member. (CRP Management)
+    - /crp role remove <target> <role> [committee_name]: Remove a specific role. (CRP Management)
+    - /crp role view [target]: View a member's current roles. (CRP Management)
+    - /crp role list <committee_name>: List members in a committee. (CRP Management)
+    - /crp role listall: Full Org Hierarchy. (CRP Management)
+"""
 
 import discord
 from discord import app_commands

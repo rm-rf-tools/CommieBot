@@ -1,4 +1,24 @@
-"""skills.py"""
+"""
+filename: skills.py
+description: Organization-wide skills matrix for tracking member proficiencies, finding experts, and managing a skill catalog.
+Views:
+    - ManageSkillsView: User interface for members to toggle and update their own skill proficiencies.
+    - SkillCreateModal: Modal for admins to add new skills to the server catalog.
+    - SkillEditModal: Modal for admins to update existing skill details.
+    - AdminSkillsView: Centralized management dashboard for the skill catalog.
+Commands:
+    - /skills create <name> <description> [is_wanted]: Add a skill to the server catalog. (CRP Member)
+    - /skills delete <name>: Remove a skill from the catalog and all profiles. (CRP Member)
+    - /skills list: List all available skills in the catalog. (CRP Member)
+    - /skills find <skill>: Find members with a specific skill, grouped by proficiency. (CRP Member)
+    - /skills profile [member]: View the skill matrix for a specific member. (CRP Member)
+    - /skills edit <name> <description> [is_wanted]: Update catalog skill metadata. (CRP Member)
+    - /skills tree: View the full organization-wide skill tree. (CRP Member)
+    - /skills manage: Open the interactive UI to update your own profile. (CRP Member)
+    - /skills admin: Open the admin UI to manage the server catalog. (CRP Member)
+    - /skills user add <skill> <proficiency> [member]: Manually log a skill on a profile. (CRP Member)
+    - /skills user remove <skill> [member]: Manually remove a skill from a profile. (CRP Member)
+"""
 
 # cogs/skills.py
 import discord

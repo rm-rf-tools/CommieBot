@@ -1,4 +1,11 @@
-"""attendance.py"""
+"""
+filename: attendance.py
+description: Logs attendance for members currently in a voice or stage channel for a specific event.
+Views:
+    - None
+Commands:
+    - /attendance <event_name>: Log attendance for everyone currently in your voice channel. (User)
+"""
 
 import discord
 from discord import app_commands

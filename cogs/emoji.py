@@ -1,4 +1,11 @@
-"""emoji.py"""
+"""
+filename: emoji.py
+description: Tools for managing server emojis, including creating emojis from user profile pictures.
+Views:
+    - None
+Commands:
+    - /emoji pfp [member] [emoji_name]: Turns a user's profile picture into a server emoji. (Admin: Manage Emojis and Stickers, Bot: Manage Emojis and Stickers)
+"""
 
 import discord
 from discord import app_commands

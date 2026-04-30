@@ -1,4 +1,11 @@
-"""reminders.py"""
+"""
+filename: reminders.py
+description: Background task service that automatically sends 24-hour follow-up reminders for active mutual aid requests.
+Views:
+    - None
+Commands:
+    - None (Background Task)
+"""
 
 # cogs/reminders.py
 import discord

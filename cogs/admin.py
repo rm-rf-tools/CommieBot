@@ -1,4 +1,16 @@
-"""admin.py"""
+"""
+filename: admin.py
+description: Server administration tools including sticky messages, mass purging, and autorole configuration.
+Views:
+    - None
+Commands:
+    - /sticky add <message_id>: Clone an existing message and stick it to the bottom of the channel. (Admin: Manage Messages, Bot: Manage Webhooks)
+    - /sticky remove: Remove the sticky message from this channel. (Admin: Manage Messages)
+    - /clearsystem [limit]: Silently clear all system messages from this channel. (Admin: Manage Messages)
+    - /clearmedia <user_ids> [scope] [limit]: Delete all media (pics/vids) sent by specific users. (Admin: Manage Messages)
+    - /autorole set <role>: Assign a default role to be applied automatically to new members. (Admin: Manage Roles)
+    - /autorole toggle <enabled>: Enable or disable the autorole feature. (Admin: Manage Roles)
+"""
 
 import discord
 from discord import app_commands

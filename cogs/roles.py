@@ -1,4 +1,18 @@
-"""roles.py"""
+"""
+filename: roles.py
+description: Advanced role management system for creating, importing, and deploying complex role-reaction menus (Role Plans).
+Views:
+    - RoleItemModal: Modal for configuring individual role item details (name, color, emoji, description).
+    - PlanManageView: Interactive dashboard for adding, editing, or removing roles within a specific plan.
+Commands:
+    - /roles plan create <name>: Create a new empty role plan. (Admin: Manage Roles)
+    - /roles plan manage <name>: Open the management UI for a specific plan. (Admin: Manage Roles)
+    - /roles plan import <file>: Bulk import a role plan from a JSON file. (Admin: Manage Roles)
+    - /roles plan export <name>: Export a role plan configuration to a JSON file. (Admin: Manage Roles)
+    - /roles plan delete <name>: Permanently delete a role plan and its configuration. (Admin: Manage Roles)
+    - /roles plan debug_ghosts: Clean up orphaned role items in the database. (Admin: Manage Roles)
+    - /roles deploy <name> [channel] [clear_previous]: Create roles and deploy the reaction UI to a channel. (Admin: Manage Roles)
+"""
 
 # cogs/roles.py
 import discord

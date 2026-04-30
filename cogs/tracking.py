@@ -1,4 +1,17 @@
-"""tracking.py"""
+"""
+filename: tracking.py
+description: Server activity tracking system that monitors member participation and identifies inactive users.
+Views:
+    - None
+Commands:
+    - /lastseen <member>: Check the relative timestamp of a user's last message. (User)
+    - /server scan_history [days]: Retroactively scan message history to backfill activity data. (Admin: Manage Guild)
+    - /server active count [days]: Get the number of members active within a timeframe. (Admin: Manage Guild)
+    - /server active list [days]: Generate a list of all active members. (Admin: Manage Guild)
+    - /server inactive count [days]: Get the number of members inactive within a timeframe. (Admin: Manage Guild)
+    - /server inactive list [days]: Generate a list of all inactive members. (Admin: Manage Guild)
+    - /server list_no_pfp: List all members using a default Discord avatar. (Admin: Manage Guild)
+"""
 
 import time
 import io
