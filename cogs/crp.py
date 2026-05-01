@@ -23,7 +23,7 @@ from typing import List, Optional
 from pydantic import BaseModel, field_validator, ValidationError
 from enum import Enum
 
-from database import DatabaseController
+from db import DatabaseController
 
 
 class RoleType(str, Enum):

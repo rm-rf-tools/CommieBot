@@ -18,7 +18,7 @@ import random
 import re
 import json
 from typing import Optional
-from database import DatabaseController
+from db import DatabaseController
 
 class GrokCog(commands.GroupCog, name="grok"):
     def __init__(self, bot):

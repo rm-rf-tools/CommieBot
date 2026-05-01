@@ -8,3 +8,8 @@ services:
       - .env
     volumes:
       - ./data:/app/data
+    # healthcheck:
+    #   test: ["CMD-SHELL", "python -c 'import os; exit(0 if os.path.exists(\"data/mutual_aid.db\") else 1)'"]
+    #   interval: 10s
+    #   timeout: 5s
+    #   retries: 5

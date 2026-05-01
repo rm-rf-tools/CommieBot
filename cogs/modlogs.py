@@ -15,7 +15,7 @@ import discord
 from discord import app_commands
 from discord.ext import commands
 import re
-from database import DatabaseController
+from db import DatabaseController
 
 class ModLogs(commands.Cog):
     def __init__(self, bot):

@@ -5,7 +5,7 @@ import discord
 from discord.ext import commands
 from discord import app_commands
 from dotenv import load_dotenv
-from database import DatabaseController
+from db import DatabaseController
 
 load_dotenv()
 TOKEN = os.getenv('DISCORD_TOKEN')

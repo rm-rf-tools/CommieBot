@@ -22,7 +22,7 @@ from discord.ext import commands
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlmodel import select
 
-from database import DatabaseController, engine
+from db import DatabaseController, engine
 from models import UserLastSeen
 
 class TrackingCog(commands.Cog, name="tracking"):

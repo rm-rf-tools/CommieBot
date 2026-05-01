@@ -16,7 +16,7 @@ import discord
 from discord import app_commands
 from discord.ext import commands
 from typing import Union
-from database import DatabaseController
+from db import DatabaseController
 
 class FocusCog(commands.GroupCog, name="focus"):
     def __init__(self, bot):

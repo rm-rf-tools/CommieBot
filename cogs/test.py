@@ -12,7 +12,7 @@ import discord
 from discord import app_commands
 from discord.ext import commands
 from typing import Literal
-from database import DatabaseController
+from db import DatabaseController
 from cogs.mutual_aid import ContributionView 
 
 class TestCog(commands.Cog):

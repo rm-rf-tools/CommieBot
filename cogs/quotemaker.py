@@ -19,7 +19,7 @@ import os
 import io
 import textwrap
 from PIL import Image, ImageEnhance, ImageDraw, ImageFont
-from database import DatabaseController
+from db import DatabaseController
 
 #        GLOBAL CONFIGURATION
 

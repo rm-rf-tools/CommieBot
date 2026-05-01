@@ -12,7 +12,7 @@ from discord import app_commands
 from discord.ext import commands
 import logging
 
-from database import DatabaseController
+from db import DatabaseController
 
 # Set up logging for Docker
 logger = logging.getLogger("FilmCog")

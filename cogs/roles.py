@@ -23,7 +23,7 @@ import io
 import asyncio
 from typing import Optional
 
-from database import DatabaseController
+from db import DatabaseController
 
 # ==========================================
 #             INTERACTIVE UI

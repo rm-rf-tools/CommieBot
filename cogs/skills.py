@@ -25,7 +25,7 @@ import discord
 from discord import app_commands
 from discord.ext import commands
 from typing import List
-from database import DatabaseController
+from db import DatabaseController
 
 class ManageSkillsView(discord.ui.View):
     def __init__(self, user: discord.Member, guild_id: str):

@@ -1,4 +1,4 @@
-"""database.py"""
+"""base_controller.py"""
 
 import os
 import time
@@ -6,11 +6,10 @@ import csv
 from typing import Optional
 from sqlalchemy.exc import IntegrityError
 from sqlmodel import SQLModel, select, or_, func
-from sqlalchemy.ext.asyncio import create_async_engine, AsyncSession
-import logging 
-import sys
+from sqlalchemy.ext.asyncio import AsyncSession
 
-from models import (
+from .engine import engine, logger, DB_PATH
+from .models import (
     ServerConfig, Aid, Committee, CommitteeAssignment, QuoteTemplate, Ticket, 
     TicketStaffRole, Profile, Skill, ProfileSkill, Event, EventAttendance,
     Applicant, FormTemplate, FormQuestion, FormSubmission, FormAnswer,
@@ -18,23 +17,12 @@ from models import (
     RolePlan, RolePlanItem
 )
 
-DB_PATH = "./data/mutual_aid.db"
-DATABASE_URL = f"sqlite+aiosqlite:///{DB_PATH.lstrip('./')}"
-
-logging.basicConfig(
-    stream=sys.stdout,
-    level=logging.INFO,
-    format="%(asctime)s - %(name)s - %(levelname)s - %(message)s"
-)
-logger = logging.getLogger("Database")
-
-engine = create_async_engine(DATABASE_URL, echo=False)
-
 class DatabaseController:
     @staticmethod
     async def setup():
         os.makedirs(os.path.dirname(DB_PATH), exist_ok=True)
-        async with engine.begin() as conn:
+        from .engine import engine as e
+        async with e.begin() as conn:
             await conn.run_sync(SQLModel.metadata.create_all)
         
         # Trigger CSV Load on boot
@@ -42,14 +30,12 @@ class DatabaseController:
 
     @staticmethod
     async def load_movies_from_csv():
-        """Reads TMDB CSV and populates database efficiently if empty."""
         csv_path = "./data/csv/TMDB_movie_dataset.csv"
         if not os.path.exists(csv_path):
             logger.warning(f"Movie CSV not found at {csv_path}. Skipping movie load.")
             return
 
         async with AsyncSession(engine) as session:
-            # Check if movies already exist
             result = await session.execute(select(func.count(Movie.id)))
             count = result.scalar()
             
@@ -68,7 +54,7 @@ class DatabaseController:
                     except: return 0.0
                 
                 movies_to_insert = []
-                seen_ids = set() # Track duplicates
+                seen_ids = set()
                 skipped = 0
                 
                 with open(csv_path, 'r', encoding='utf-8') as f:
@@ -110,13 +96,11 @@ class DatabaseController:
                         )
                         movies_to_insert.append(movie)
                         
-                        # Batch commit
                         if len(movies_to_insert) >= 5000:
                             session.add_all(movies_to_insert)
                             await session.commit()
                             movies_to_insert.clear()
                             
-                # Commit remaining
                 if movies_to_insert:
                     session.add_all(movies_to_insert)
                     await session.commit()
@@ -125,97 +109,16 @@ class DatabaseController:
             except Exception as e:
                 logger.error(f"Failed to load movies: {e}")
                 await session.rollback()
-        """Reads TMDB CSV and populates database efficiently if empty."""
-        csv_path = "./data/csv/TMDB_movie_dataset.csv"
-        if not os.path.exists(csv_path):
-            logger.warning(f"Movie CSV not found at {csv_path}. Skipping movie load.")
-            return
-
-        async with AsyncSession(engine) as session:
-            # Check if movies already exist
-            result = await session.execute(select(func.count(Movie.id)))
-            count = result.scalar()
-            
-            if count and count > 0:
-                logger.info(f"Database already contains {count} movies. Skipping CSV import.")
-                return
-
-            logger.info("Initializing TMDB Movie Database. This may take a moment...")
-            try:
-                # Safer parsing to avoid ValueError on empty strings in the CSV
-                def safe_int(v):
-                    try: return int(float(v)) if v and str(v).strip() else 0
-                    except: return 0
-                
-                def safe_float(v):
-                    try: return float(v) if v and str(v).strip() else 0.0
-                    except: return 0.0
-                
-                movies_to_insert = []
-                with open(csv_path, 'r', encoding='utf-8') as f:
-                    reader = csv.DictReader(f)
-                    for row in reader:
-                        movie = Movie(
-                            id=safe_int(row.get('id')),
-                            title=row.get('title', 'Unknown'),
-                            vote_average=safe_float(row.get('vote_average')),
-                            vote_count=safe_int(row.get('vote_count')),
-                            status=row.get('status'),
-                            release_date=row.get('release_date'),
-                            revenue=safe_int(row.get('revenue')),
-                            runtime=safe_int(row.get('runtime')),
-                            adult=row.get('adult'),
-                            backdrop_path=row.get('backdrop_path'),
-                            budget=safe_int(row.get('budget')),
-                            homepage=row.get('homepage'),
-                            imdb_id=row.get('imdb_id'),
-                            original_language=row.get('original_language'),
-                            original_title=row.get('original_title'),
-                            overview=row.get('overview'),
-                            popularity=safe_float(row.get('popularity')),
-                            poster_path=row.get('poster_path'),
-                            tagline=row.get('tagline'),
-                            genres=row.get('genres'),
-                            production_companies=row.get('production_companies'),
-                            production_countries=row.get('production_countries'),
-                            spoken_languages=row.get('spoken_languages'),
-                            keywords=row.get('keywords')
-                        )
-                        movies_to_insert.append(movie)
-                        
-                        # Batch commit to prevent RAM overflow for massive CSVs
-                        if len(movies_to_insert) >= 5000:
-                            session.add_all(movies_to_insert)
-                            await session.commit()
-                            movies_to_insert.clear()
-                            
-                # Commit remaining
-                if movies_to_insert:
-                    session.add_all(movies_to_insert)
-                    await session.commit()
-                    
-                logger.info("✅ TMDB Movie Database successfully imported!")
-            except Exception as e:
-                logger.error(f"Failed to load movies: {e}")
-                await session.rollback()
 
     @staticmethod
     async def search_movies(query: str, limit: int = 15):
-        """Fuzzy-like search using split words. Finds titles matching multiple keywords."""
         async with AsyncSession(engine) as session:
             if not query:
                 return []
-                
-            # Split query by spaces to allow out-of-order partial matches (Pseudo fuzzy)
             terms = query.strip().split()
-            
-            # Start the select statement
             stmt = select(Movie)
-            
-            # Chaining multiple .where() automatically applies an AND condition!
             for term in terms:
                 stmt = stmt.where(Movie.title.ilike(f"%{term}%"))
-                
             stmt = stmt.order_by(Movie.popularity.desc()).limit(limit)
             result = await session.execute(stmt)
             return result.scalars().all()
@@ -269,7 +172,6 @@ class DatabaseController:
             obj = await session.get(ServerConfig, guild_id)
             return obj.role_id if obj else None
 
-    # --- AUTOROLE SETTINGS ---
     @staticmethod
     async def get_autorole_config(guild_id: str):
         async with AsyncSession(engine) as session:
@@ -496,7 +398,7 @@ class DatabaseController:
                 stmt = stmt.where(Aid.status == status)
             result = await session.execute(stmt)
             return [(obj.name, obj.user_id, obj.amount_requested, obj.amount_received, obj.reason, obj.status, obj.created_at) for obj in result.scalars().all()]
-    #
+
     # CRP 
     @staticmethod
     async def setup_indexes():
@@ -822,7 +724,7 @@ class DatabaseController:
                 return True
             return False
 
-    
+    # --- Event / Attendance ---
     @staticmethod
     async def get_or_create_event(guild_id: str, name: str) -> int:
         async with AsyncSession(engine) as session:
@@ -854,11 +756,10 @@ class DatabaseController:
                     await session.commit()
                     added_count += 1
                 except IntegrityError:
-                    # Ignore if the user is already logged for this event
                     await session.rollback()
         return added_count
 
-
+    # --- Forms ---
     @staticmethod
     async def get_applicant(guild_id: str, user_id: str):
         async with AsyncSession(engine) as session:
@@ -908,7 +809,6 @@ class DatabaseController:
         async with AsyncSession(engine) as session:
             obj = await session.get(FormTemplate, form_id)
             if obj:
-                # Manual cascading for sqlite safety
                 q_stmt = select(FormQuestion).where(FormQuestion.form_id == form_id)
                 questions = await session.execute(q_stmt)
                 for q in questions.scalars().all():
@@ -938,7 +838,6 @@ class DatabaseController:
             result = await session.execute(stmt)
             return result.scalars().all()
 
-
     @staticmethod
     async def save_form_submission(form_id: int, applicant_id: int, answers: dict) -> int:
         async with AsyncSession(engine) as session:
@@ -949,7 +848,7 @@ class DatabaseController:
                 status="pending"
             )
             session.add(submission)
-            await session.flush() # Flushes to generate the ID without closing the transaction
+            await session.flush()
             sub_id = submission.id
             
             for q_id, ans_text in answers.items():
@@ -994,7 +893,6 @@ class DatabaseController:
                 obj.status = status
                 await session.commit()
 
-
     @staticmethod
     async def create_form(guild_id: str, name: str, description: str, cooldown_days: int = 0):
         async with AsyncSession(engine) as session:
@@ -1010,8 +908,7 @@ class DatabaseController:
     @staticmethod
     async def check_recent_submission(form_id: int, applicant_id: int, cooldown_days: int) -> bool:
         if cooldown_days <= 0:
-            return False # No cooldown configured
-            
+            return False
         async with AsyncSession(engine) as session:
             cutoff_time = int(time.time()) - (cooldown_days * 24 * 60 * 60)
             stmt = select(FormSubmission).where(
@@ -1074,7 +971,7 @@ class DatabaseController:
             ).where(
                 FormTemplate.guild_id == guild_id,
                 FormSubmission.status != "pending"
-            ).order_by(FormSubmission.submitted_at.desc()) # Newest history first
+            ).order_by(FormSubmission.submitted_at.desc())
             result = await session.execute(stmt)
             return result.all()
 
@@ -1083,7 +980,7 @@ class DatabaseController:
         async with AsyncSession(engine) as session:
             obj = await session.get(ModWatch, (guild_id, user_id))
             if obj:
-                obj.reason = reason # Update reason if already on the list
+                obj.reason = reason
             else:
                 obj = ModWatch(guild_id=guild_id, user_id=user_id, reason=reason)
                 session.add(obj)
@@ -1109,10 +1006,9 @@ class DatabaseController:
     @staticmethod
     async def log_channel_audit(guild_id: str, channel_id: str, channel_name: str, user_id: str, action: str, changes: str):
         async with AsyncSession(engine) as session:
-            now = int(time.time())
-
             try:
-                from models import ChannelAuditLog
+                from .models import ChannelAuditLog
+                now = int(time.time())
                 obj = ChannelAuditLog(
                     guild_id=guild_id, channel_id=channel_id, channel_name=channel_name,
                     user_id=user_id, action=action, changes=changes, timestamp=now
@@ -1126,13 +1022,12 @@ class DatabaseController:
     async def get_channel_audit_logs(guild_id: str, user_id: Optional[str] = None, action: Optional[str] = None, limit: int = 50):
         async with AsyncSession(engine) as session:
             try:
-                from models import ChannelAuditLog
+                from .models import ChannelAuditLog
                 stmt = select(ChannelAuditLog).where(ChannelAuditLog.guild_id == guild_id)
                 if user_id:
                     stmt = stmt.where(ChannelAuditLog.user_id == user_id)
                 if action:
                     stmt = stmt.where(ChannelAuditLog.action == action)
-                
                 stmt = stmt.order_by(ChannelAuditLog.timestamp.desc()).limit(limit)
                 result = await session.execute(stmt)
                 return result.scalars().all()
@@ -1272,6 +1167,15 @@ class DatabaseController:
                 return True
             return False
 
+    @staticmethod
+    async def clear_all_grok_replies(guild_id: str):
+        async with AsyncSession(engine) as session:
+            stmt = select(GrokReply).where(GrokReply.guild_id == guild_id)
+            result = await session.execute(stmt)
+            for obj in result.scalars().all():
+                await session.delete(obj)
+            await session.commit()
+
     # --- LAST SEEN TRACKING ---
     @staticmethod
     async def update_last_seen(guild_id: str, user_id: str, timestamp: int):
@@ -1290,31 +1194,15 @@ class DatabaseController:
             obj = await session.get(UserLastSeen, (guild_id, user_id))
             return obj.last_seen_at if obj else None
 
-    @staticmethod
-    async def clear_all_grok_replies(guild_id: str):
-        async with AsyncSession(engine) as session:
-            stmt = select(GrokReply).where(GrokReply.guild_id == guild_id)
-            result = await session.execute(stmt)
-            for obj in result.scalars().all():
-                await session.delete(obj)
-            await session.commit()
-
+    # --- TOTAL RAISED ---
     @staticmethod
     async def get_total_raised(guild_id: Optional[str] = None):
-        """
-        Returns the total sum of money raised.
-        If guild_id is provided, returns total for that server.
-        Otherwise returns global total.
-        """
         async with AsyncSession(engine) as session:
             stmt = select(func.sum(Aid.amount_received))
-
             if guild_id:
                 stmt = stmt.where(Aid.guild_id == guild_id)
             result = await session.execute(stmt)
-
             total = result.scalar_one_or_none()
-            
             return total if total is not None else 0.0
 
     # --- REACT ROLES ---
@@ -1325,7 +1213,6 @@ class DatabaseController:
             res = await session.execute(stmt)
             if res.scalar_one_or_none():
                 return None 
-            
             plan = RolePlan(guild_id=guild_id, name=name)
             session.add(plan)
             await session.commit()
@@ -1342,10 +1229,15 @@ class DatabaseController:
     @staticmethod
     async def delete_role_plan(plan_id: int):
         async with AsyncSession(engine) as session:
+            # Manually cascade delete to fix SQLite leaving ghost rows
+            items_stmt = select(RolePlanItem).where(RolePlanItem.plan_id == plan_id)
+            items = await session.execute(items_stmt)
+            for item in items.scalars().all():
+                await session.delete(item)
             obj = await session.get(RolePlan, plan_id)
             if obj:
                 await session.delete(obj)
-                await session.commit()
+            await session.commit()
 
     @staticmethod
     async def add_role_plan_item(plan_id: int, role_name: str, category: str, color: int, emoji: str, description: str):
@@ -1370,7 +1262,6 @@ class DatabaseController:
 
     @staticmethod
     async def delete_role_plan_item(item_id: int):
-        """Deletes a single role configuration from a plan without touching Discord roles."""
         async with AsyncSession(engine) as session:
             obj = await session.get(RolePlanItem, item_id)
             if obj:
@@ -1379,7 +1270,6 @@ class DatabaseController:
 
     @staticmethod
     async def update_role_plan_item(item_id: int, role_name: str, category: str, color: int, emoji: str, description: str):
-        """Updates a single role configuration in a plan."""
         async with AsyncSession(engine) as session:
             obj = await session.get(RolePlanItem, item_id)
             if obj:
@@ -1391,39 +1281,18 @@ class DatabaseController:
                 await session.commit()
 
     @staticmethod
-    async def delete_role_plan(plan_id: int):
-        async with AsyncSession(engine) as session:
-            # Manually cascade delete to fix SQLite leaving ghost rows
-            items_stmt = select(RolePlanItem).where(RolePlanItem.plan_id == plan_id)
-            items = await session.execute(items_stmt)
-            for item in items.scalars().all():
-                await session.delete(item)
-                
-            obj = await session.get(RolePlan, plan_id)
-            if obj:
-                await session.delete(obj)
-                
-            await session.commit()
-
-    @staticmethod
     async def cleanup_orphaned_role_items():
-        """Cleans up any ghost items left behind by previous SQLite cascade failures."""
         async with AsyncSession(engine) as session:
-            # Find all plan IDs that actually exist
             valid_plans = await session.execute(select(RolePlan.id))
             valid_plan_ids = [r for r in valid_plans.scalars().all()]
-            
-            # Find items whose plan_id is NOT in valid_plan_ids
             stmt = select(RolePlanItem)
             if valid_plan_ids:
                 stmt = stmt.where(RolePlanItem.plan_id.not_in(valid_plan_ids))
-                
             orphans = await session.execute(stmt)
             count = 0
             for orphan in orphans.scalars().all():
                 await session.delete(orphan)
                 count += 1
-                
             if count > 0:
                 await session.commit()
             return count

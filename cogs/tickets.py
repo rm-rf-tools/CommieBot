@@ -26,7 +26,7 @@ from discord import app_commands
 import asyncio
 import uuid
 import io
-from database import DatabaseController
+from db import DatabaseController
 
 class TicketCreateModal(discord.ui.Modal, title="Open a Ticket"):
     description = discord.ui.TextInput(

@@ -20,7 +20,7 @@ import datetime
 import asyncio
 import json
 import os
-from database import DatabaseController
+from db import DatabaseController
 
 STICKY_FILE = "./data/sticky.json"
 

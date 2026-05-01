@@ -10,7 +10,7 @@ Commands:
 # cogs/reminders.py
 import discord
 from discord.ext import commands, tasks
-from database import DatabaseController
+from db import DatabaseController
 from cogs.mutual_aid import ContributionView  
 
 class RemindersCog(commands.Cog):

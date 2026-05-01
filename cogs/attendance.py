@@ -10,7 +10,7 @@ Commands:
 import discord
 from discord import app_commands
 from discord.ext import commands
-from database import DatabaseController
+from db import DatabaseController
 
 class AttendanceCog(commands.Cog, name="attendance"):
     def __init__(self, bot):

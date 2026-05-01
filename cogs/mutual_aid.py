@@ -27,7 +27,7 @@ import re
 import io
 import csv
 import datetime
-from database import DatabaseController
+from db import DatabaseController
 
 class ContributeModal(discord.ui.Modal, title='Log Contribution'):
     amount_input = discord.ui.TextInput(
