@@ -23,7 +23,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlmodel import select
 
 from db import DatabaseController, engine
-from models import UserLastSeen
+from db.models import UserLastSeen
 
 class TrackingCog(commands.Cog, name="tracking"):
     def __init__(self, bot):

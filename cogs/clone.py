@@ -5,7 +5,7 @@ Views:
     - None
 Commands:
     - /clone diagnose <source_guild_id>: Check if the bot has the correct permissions to clone. (Admin: Administrator)
-    - /clone server <source_guild_id> [clear_server]: Sync and clone roles, categories, and channels. (Admin: Administrator)
+    - /clone server <source_guild_id> [clone_target] [clear_server]: Sync and clone roles, categories/channels, or both. (Admin: Administrator)
     - /clone messages <source_guild_id> <scope> <filter_type> [limit] [create_backup]: Clone messages, pins, images, or files. (Admin: Administrator)
 """
 
@@ -42,6 +42,93 @@ class CloneCog(commands.GroupCog, name="clone"):
         new_overwrites[bot_member] = bot_overwrite
         
         return new_overwrites
+
+    async def _clone_roles(self, source_guild, target_guild, error_log):
+        """Clone/sync roles from source to target. Returns a role_map {src_id: target_role}."""
+        role_map = {}
+        roles_to_copy = [r for r in reversed(source_guild.roles) if not r.is_default() and not r.managed]
+
+        for src_role in roles_to_copy:
+            existing_role = discord.utils.get(target_guild.roles, name=src_role.name)
+            try:
+                if existing_role:
+                    await existing_role.edit(
+                        permissions=src_role.permissions, color=src_role.color,
+                        hoist=src_role.hoist, mentionable=src_role.mentionable,
+                        reason=f"Synced from {source_guild.name}"
+                    )
+                    role_map[src_role.id] = existing_role
+                else:
+                    new_role = await target_guild.create_role(
+                        name=src_role.name, permissions=src_role.permissions,
+                        color=src_role.color, hoist=src_role.hoist, mentionable=src_role.mentionable,
+                        reason=f"Cloned from {source_guild.name}"
+                    )
+                    role_map[src_role.id] = new_role
+                await asyncio.sleep(0.4)
+            except Exception as e:
+                error_log.append(f"[Roles] Failed to clone/sync role '{src_role.name}': {e}")
+
+        return role_map
+
+    async def _clone_categories_and_channels(self, source_guild, target_guild, role_map, error_log):
+        """Clone/sync categories and channels from source to target."""
+        category_map = {}
+
+        for src_cat in source_guild.categories:
+            existing_cat = discord.utils.get(target_guild.categories, name=src_cat.name)
+            new_overwrites = self._map_overwrites(src_cat.overwrites, role_map, target_guild)
+
+            try:
+                if existing_cat:
+                    await existing_cat.edit(overwrites=new_overwrites, position=src_cat.position)
+                    category_map[src_cat.id] = existing_cat
+                else:
+                    new_category = await target_guild.create_category(
+                        name=src_cat.name, overwrites=new_overwrites, position=src_cat.position
+                    )
+                    category_map[src_cat.id] = new_category
+                await asyncio.sleep(0.5)
+            except Exception as e:
+                error_log.append(f"[Categories] Failed to clone/sync category '{src_cat.name}': {e}")
+
+        for src_chan in source_guild.channels:
+            if isinstance(src_chan, discord.CategoryChannel):
+                continue
+
+            target_cat = category_map.get(src_chan.category_id)
+            new_overwrites = self._map_overwrites(src_chan.overwrites, role_map, target_guild)
+            existing_chan = discord.utils.get(target_guild.channels, name=src_chan.name, type=src_chan.type)
+
+            try:
+                if existing_chan:
+                    kwargs = {'category': target_cat, 'overwrites': new_overwrites, 'position': src_chan.position}
+                    if hasattr(src_chan, 'topic'): kwargs['topic'] = src_chan.topic
+                    if hasattr(src_chan, 'nsfw'): kwargs['nsfw'] = src_chan.nsfw
+                    if hasattr(src_chan, 'slowmode_delay'): kwargs['slowmode_delay'] = src_chan.slowmode_delay
+                    if hasattr(src_chan, 'user_limit'): kwargs['user_limit'] = src_chan.user_limit
+                    if hasattr(src_chan, 'bitrate'): kwargs['bitrate'] = src_chan.bitrate
+
+                    await existing_chan.edit(**kwargs)
+                else:
+                    if isinstance(src_chan, discord.TextChannel):
+                        await target_guild.create_text_channel(
+                            name=src_chan.name, category=target_cat, overwrites=new_overwrites,
+                            position=src_chan.position, topic=src_chan.topic, slowmode_delay=src_chan.slowmode_delay, nsfw=src_chan.nsfw
+                        )
+                    elif isinstance(src_chan, discord.VoiceChannel):
+                        await target_guild.create_voice_channel(
+                            name=src_chan.name, category=target_cat, overwrites=new_overwrites,
+                            position=src_chan.position, user_limit=src_chan.user_limit, bitrate=src_chan.bitrate
+                        )
+                    elif isinstance(src_chan, discord.ForumChannel):
+                        await target_guild.create_forum(
+                            name=src_chan.name, category=target_cat, overwrites=new_overwrites,
+                            position=src_chan.position, topic=src_chan.topic
+                        )
+                await asyncio.sleep(0.6)
+            except Exception as e:
+                error_log.append(f"[Channels] Failed to clone/sync channel '{src_chan.name}': {e}")
 
     # ==========================================
     #             DIAGNOSTICS
@@ -99,10 +186,18 @@ class CloneCog(commands.GroupCog, name="clone"):
     @app_commands.command(name="server", description="Sync and clone roles, categories, and channels from another server.")
     @app_commands.describe(
         source_guild_id="The ID of the server you want to copy FROM",
+        clone_target="What to clone: roles, channels & categories, or both (default: both)",
         clear_server="Set to True to DELETE ALL existing roles and channels in this server first"
     )
+    @app_commands.choices(
+        clone_target=[
+            app_commands.Choice(name="Both (Roles + Channels & Categories)", value="both"),
+            app_commands.Choice(name="Roles Only", value="roles"),
+            app_commands.Choice(name="Channels & Categories Only", value="channels"),
+        ]
+    )
     @app_commands.checks.has_permissions(administrator=True)
-    async def clone_server(self, interaction: discord.Interaction, source_guild_id: str, clear_server: bool = False):
+    async def clone_server(self, interaction: discord.Interaction, source_guild_id: str, clone_target: app_commands.Choice[str] = None, clear_server: bool = False):
         # Strict Pre-flight Check
         if not interaction.guild.me.guild_permissions.administrator:
             return await interaction.response.send_message(
@@ -126,7 +221,12 @@ class CloneCog(commands.GroupCog, name="clone"):
         if source_guild.id == target_guild.id:
             return await interaction.followup.send("❌ Source and target servers cannot be the same.")
 
-        status_msg = f"⏳ Starting server clone/sync from **{source_guild.name}**...\n*This might take a few minutes to respect Discord rate limits.*"
+        target_mode = clone_target.value if clone_target else "both"
+        do_roles = target_mode in ("both", "roles")
+        do_channels = target_mode in ("both", "channels")
+
+        mode_label = {"both": "roles, categories, and channels", "roles": "roles", "channels": "categories and channels"}[target_mode]
+        status_msg = f"⏳ Starting clone/sync of **{mode_label}** from **{source_guild.name}**...\n*This might take a few minutes to respect Discord rate limits.*"
         await interaction.followup.send(status_msg)
 
         error_log = []
@@ -134,108 +234,41 @@ class CloneCog(commands.GroupCog, name="clone"):
         # --- 0. WIPE TARGET SERVER (IF REQUESTED) ---
         if clear_server:
             save_channel = interaction.channel.parent if isinstance(interaction.channel, discord.Thread) else interaction.channel
-            for channel in target_guild.channels:
-                if channel.id != save_channel.id:
-                    try: 
-                        await channel.delete()
-                        await asyncio.sleep(0.5) # Rate limit pacing
-                    except Exception as e: 
-                        error_log.append(f"[Clear] Failed to delete channel {channel.name}: {e}")
+            if do_channels:
+                for channel in target_guild.channels:
+                    if channel.id != save_channel.id:
+                        try: 
+                            await channel.delete()
+                            await asyncio.sleep(0.5) # Rate limit pacing
+                        except Exception as e: 
+                            error_log.append(f"[Clear] Failed to delete channel {channel.name}: {e}")
             
-            for role in target_guild.roles:
-                if not role.is_default() and not role.managed and role < target_guild.me.top_role:
-                    try: 
-                        await role.delete()
-                        await asyncio.sleep(0.3) # Rate limit pacing
-                    except Exception as e: 
-                        error_log.append(f"[Clear] Failed to delete role {role.name}: {e}")
+            if do_roles:
+                for role in target_guild.roles:
+                    if not role.is_default() and not role.managed and role < target_guild.me.top_role:
+                        try: 
+                            await role.delete()
+                            await asyncio.sleep(0.3) # Rate limit pacing
+                        except Exception as e: 
+                            error_log.append(f"[Clear] Failed to delete role {role.name}: {e}")
 
         # --- 1. CLONE / SYNC ROLES ---
         role_map = {} 
-        roles_to_copy = [r for r in reversed(source_guild.roles) if not r.is_default() and not r.managed]
-        
-        for src_role in roles_to_copy:
-            existing_role = discord.utils.get(target_guild.roles, name=src_role.name)
-            try:
-                if existing_role:
-                    await existing_role.edit(
-                        permissions=src_role.permissions, color=src_role.color, 
-                        hoist=src_role.hoist, mentionable=src_role.mentionable,
-                        reason=f"Synced from {source_guild.name}"
-                    )
-                    role_map[src_role.id] = existing_role
-                else:
-                    new_role = await target_guild.create_role(
-                        name=src_role.name, permissions=src_role.permissions,
-                        color=src_role.color, hoist=src_role.hoist, mentionable=src_role.mentionable,
-                        reason=f"Cloned from {source_guild.name}"
-                    )
-                    role_map[src_role.id] = new_role
-                await asyncio.sleep(0.4) # Rate limit pacing
-            except Exception as e:
-                error_log.append(f"[Roles] Failed to clone/sync role '{src_role.name}': {e}")
+        if do_roles:
+            role_map = await self._clone_roles(source_guild, target_guild, error_log)
+        else:
+            # Build a role_map from existing roles by name so channel overwrites can still be mapped
+            for src_role in source_guild.roles:
+                existing = discord.utils.get(target_guild.roles, name=src_role.name)
+                if existing:
+                    role_map[src_role.id] = existing
 
-        # --- 2. CLONE / SYNC CATEGORIES ---
-        category_map = {} 
-
-        for src_cat in source_guild.categories:
-            existing_cat = discord.utils.get(target_guild.categories, name=src_cat.name)
-            new_overwrites = self._map_overwrites(src_cat.overwrites, role_map, target_guild)
-            
-            try:
-                if existing_cat:
-                    await existing_cat.edit(overwrites=new_overwrites, position=src_cat.position)
-                    category_map[src_cat.id] = existing_cat
-                else:
-                    new_category = await target_guild.create_category(
-                        name=src_cat.name, overwrites=new_overwrites, position=src_cat.position
-                    )
-                    category_map[src_cat.id] = new_category
-                await asyncio.sleep(0.5) # Rate limit pacing
-            except Exception as e:
-                error_log.append(f"[Categories] Failed to clone/sync category '{src_cat.name}': {e}")
-
-        # --- 3. CLONE / SYNC CHANNELS ---
-        for src_chan in source_guild.channels:
-            if isinstance(src_chan, discord.CategoryChannel):
-                continue
-
-            target_cat = category_map.get(src_chan.category_id)
-            new_overwrites = self._map_overwrites(src_chan.overwrites, role_map, target_guild)
-            existing_chan = discord.utils.get(target_guild.channels, name=src_chan.name, type=src_chan.type)
-
-            try:
-                if existing_chan:
-                    kwargs = {'category': target_cat, 'overwrites': new_overwrites, 'position': src_chan.position}
-                    if hasattr(src_chan, 'topic'): kwargs['topic'] = src_chan.topic
-                    if hasattr(src_chan, 'nsfw'): kwargs['nsfw'] = src_chan.nsfw
-                    if hasattr(src_chan, 'slowmode_delay'): kwargs['slowmode_delay'] = src_chan.slowmode_delay
-                    if hasattr(src_chan, 'user_limit'): kwargs['user_limit'] = src_chan.user_limit
-                    if hasattr(src_chan, 'bitrate'): kwargs['bitrate'] = src_chan.bitrate
-                    
-                    await existing_chan.edit(**kwargs)
-                else:
-                    if isinstance(src_chan, discord.TextChannel):
-                        await target_guild.create_text_channel(
-                            name=src_chan.name, category=target_cat, overwrites=new_overwrites,
-                            position=src_chan.position, topic=src_chan.topic, slowmode_delay=src_chan.slowmode_delay, nsfw=src_chan.nsfw
-                        )
-                    elif isinstance(src_chan, discord.VoiceChannel):
-                        await target_guild.create_voice_channel(
-                            name=src_chan.name, category=target_cat, overwrites=new_overwrites,
-                            position=src_chan.position, user_limit=src_chan.user_limit, bitrate=src_chan.bitrate
-                        )
-                    elif isinstance(src_chan, discord.ForumChannel):
-                        await target_guild.create_forum(
-                            name=src_chan.name, category=target_cat, overwrites=new_overwrites,
-                            position=src_chan.position, topic=src_chan.topic
-                        )
-                await asyncio.sleep(0.6) # Channel endpoints are heavily rate limited, pace slower
-            except Exception as e:
-                error_log.append(f"[Channels] Failed to clone/sync channel '{src_chan.name}': {e}")
+        # --- 2 & 3. CLONE / SYNC CATEGORIES & CHANNELS ---
+        if do_channels:
+            await self._clone_categories_and_channels(source_guild, target_guild, role_map, error_log)
 
         # --- 4. FINAL REPORTING ---
-        final_msg = f"✅ **Sync Complete!** Roles, categories, and channels match **{source_guild.name}**."
+        final_msg = f"✅ **Sync Complete!** {mode_label.capitalize()} now match **{source_guild.name}**."
         
         if error_log:
             final_msg += f"\n⚠️ Encountered {len(error_log)} errors during the process. See the attached log."

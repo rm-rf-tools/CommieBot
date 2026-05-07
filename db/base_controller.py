@@ -7,14 +7,14 @@ from typing import Optional
 from sqlalchemy.exc import IntegrityError
 from sqlmodel import SQLModel, select, or_, func
 from sqlalchemy.ext.asyncio import AsyncSession
-
+from sqlalchemy import delete, text
 from .engine import engine, logger, DB_PATH
 from .models import (
     ServerConfig, Aid, Committee, CommitteeAssignment, QuoteTemplate, Ticket, 
     TicketStaffRole, Profile, Skill, ProfileSkill, Event, EventAttendance,
     Applicant, FormTemplate, FormQuestion, FormSubmission, FormAnswer,
     ModWatch, ModLogConfig, FocusChannel, GrokReply, UserLastSeen, Movie,
-    RolePlan, RolePlanItem
+    RolePlan, RolePlanItem, TrackedWord, WordGroup, TheoryResource
 )
 
 class DatabaseController:
@@ -339,10 +339,15 @@ class DatabaseController:
         async with AsyncSession(engine) as session:
             stmt = select(Aid).where(
                 Aid.guild_id == guild_id,
-                func.lower(Aid.name) == name.lower()
-            )
+                func.lower(Aid.name) == name.lower(),
+                Aid.status == 'active'
+            ).order_by(Aid.id.desc())
             result = await session.execute(stmt)
-            obj = result.scalar_one_or_none()
+            obj = result.scalars().first()
+            if not obj:
+                stmt = select(Aid).where(Aid.guild_id == guild_id, func.lower(Aid.name) == name.lower()).order_by(Aid.id.desc())
+                result = await session.execute(stmt)
+                obj = result.scalars().first()
             if obj:
                 return (obj.name, obj.user_id, obj.amount_requested, obj.amount_received, obj.reason, obj.status)
             return None
@@ -356,20 +361,37 @@ class DatabaseController:
     @staticmethod
     async def update_aid_progress_by_name(guild_id: str, name: str, new_total: float, status: str = 'active'):
         async with AsyncSession(engine) as session:
-            stmt = select(Aid).where(Aid.guild_id == guild_id, func.lower(Aid.name) == name.lower())
+            stmt = select(Aid).where(
+                Aid.guild_id == guild_id, 
+                func.lower(Aid.name) == name.lower(),
+                Aid.status == 'active'
+            ).order_by(Aid.id.desc())
             result = await session.execute(stmt)
-            obj = result.scalar_one_or_none()
+            obj = result.scalars().first()
+            if not obj:
+                stmt = select(Aid).where(Aid.guild_id == guild_id, func.lower(Aid.name) == name.lower()).order_by(Aid.id.desc())
+                result = await session.execute(stmt)
+                obj = result.scalars().first()
             if obj:
                 obj.amount_received = new_total
                 obj.status = status
                 await session.commit()
 
+    
     @staticmethod
     async def edit_aid(guild_id: str, old_name: str, new_name: str = None, amount: float = None, description: str = None):
         async with AsyncSession(engine) as session:
-            stmt = select(Aid).where(Aid.guild_id == guild_id, func.lower(Aid.name) == old_name.lower())
+            stmt = select(Aid).where(
+                Aid.guild_id == guild_id, 
+                func.lower(Aid.name) == old_name.lower(),
+                Aid.status == 'active'
+            ).order_by(Aid.id.desc())
             result = await session.execute(stmt)
-            obj = result.scalar_one_or_none()
+            obj = result.scalars().first()
+            if not obj:
+                stmt = select(Aid).where(Aid.guild_id == guild_id, func.lower(Aid.name) == old_name.lower()).order_by(Aid.id.desc())
+                result = await session.execute(stmt)
+                obj = result.scalars().first()
             if obj:
                 if new_name is not None: obj.name = new_name
                 if amount is not None: obj.amount_requested = amount
@@ -378,12 +400,21 @@ class DatabaseController:
                 return True
             return False
 
+    
     @staticmethod
     async def delete_aid_by_name(guild_id: str, name: str):
         async with AsyncSession(engine) as session:
-            stmt = select(Aid).where(Aid.guild_id == guild_id, func.lower(Aid.name) == name.lower())
+            stmt = select(Aid).where(
+                Aid.guild_id == guild_id, 
+                func.lower(Aid.name) == name.lower(),
+                Aid.status == 'active'
+            ).order_by(Aid.id.desc())
             result = await session.execute(stmt)
-            obj = result.scalar_one_or_none()
+            obj = result.scalars().first()
+            if not obj:
+                stmt = select(Aid).where(Aid.guild_id == guild_id, func.lower(Aid.name) == name.lower()).order_by(Aid.id.desc())
+                result = await session.execute(stmt)
+                obj = result.scalars().first()
             if not obj:
                 return False
             obj.status = 'deleted'
@@ -399,6 +430,17 @@ class DatabaseController:
             result = await session.execute(stmt)
             return [(obj.name, obj.user_id, obj.amount_requested, obj.amount_received, obj.reason, obj.status, obj.created_at) for obj in result.scalars().all()]
 
+    @staticmethod
+    async def get_user_aids(guild_id: str, user_id: str):
+        async with AsyncSession(engine) as session:
+            stmt = select(Aid).where(
+                Aid.guild_id == guild_id,
+                Aid.user_id == user_id,
+                Aid.status == 'active'
+            ).order_by(Aid.id.desc())
+            result = await session.execute(stmt)
+            return[(obj.id, obj.name, obj.amount_requested, obj.amount_received, obj.reason) for obj in result.scalars().all()]
+    
     # CRP 
     @staticmethod
     async def setup_indexes():
@@ -1280,6 +1322,148 @@ class DatabaseController:
                 obj.description = description
                 await session.commit()
 
+    # --- Tracked Words ---
+    @staticmethod
+    async def add_tracked_word(guild_id: str, pattern: str, is_regex: bool = False, action: str = "notify", group_id: int = None, name: str = None) -> int:
+        async with AsyncSession(engine) as session:
+            obj = TrackedWord(guild_id=guild_id, name=name, pattern=pattern, is_regex=is_regex, action=action, group_id=group_id)
+            session.add(obj)
+            await session.commit()
+            await session.refresh(obj)
+            return obj.id
+
+    @staticmethod
+    async def get_tracked_words(guild_id: str):
+        async with AsyncSession(engine) as session:
+            stmt = select(TrackedWord).where(TrackedWord.guild_id == guild_id).order_by(TrackedWord.id.asc())
+            result = await session.execute(stmt)
+            return result.scalars().all()
+
+    @staticmethod
+    async def get_tracked_word_by_id(word_id: int):
+        async with AsyncSession(engine) as session:
+            return await session.get(TrackedWord, word_id)
+
+    @staticmethod
+    async def update_tracked_word(word_id: int, pattern: str = None, is_regex: bool = None, action: str = None, name: str = None) -> bool:
+        async with AsyncSession(engine) as session:
+            obj = await session.get(TrackedWord, word_id)
+            if not obj:
+                return False
+            if name is not None:
+                obj.name = name
+            if pattern is not None:
+                obj.pattern = pattern
+            if is_regex is not None:
+                obj.is_regex = is_regex
+            if action is not None:
+                obj.action = action
+            await session.commit()
+            return True
+
+    @staticmethod
+    async def delete_tracked_word(word_id: int) -> bool:
+        async with AsyncSession(engine) as session:
+            obj = await session.get(TrackedWord, word_id)
+            if not obj:
+                return False
+            await session.delete(obj)
+            await session.commit()
+            return True
+
+    # --- Word Groups ---
+    @staticmethod
+    async def create_word_group(guild_id: str, name: str, action: str = "notify") -> int:
+        async with AsyncSession(engine) as session:
+            obj = WordGroup(guild_id=guild_id, name=name, action=action, created_at=int(time.time()))
+            session.add(obj)
+            await session.commit()
+            await session.refresh(obj)
+            return obj.id
+
+    @staticmethod
+    async def get_word_groups(guild_id: str):
+        async with AsyncSession(engine) as session:
+            stmt = select(WordGroup).where(WordGroup.guild_id == guild_id).order_by(WordGroup.id.asc())
+            result = await session.execute(stmt)
+            return result.scalars().all()
+
+    @staticmethod
+    async def get_word_group_by_id(group_id: int):
+        async with AsyncSession(engine) as session:
+            return await session.get(WordGroup, group_id)
+
+    @staticmethod
+    async def update_word_group_action(group_id: int, action: str):
+        """Update the group's action and cascade to all words in the group."""
+        async with AsyncSession(engine) as session:
+            obj = await session.get(WordGroup, group_id)
+            if not obj:
+                return False
+            obj.action = action
+            stmt = select(TrackedWord).where(TrackedWord.group_id == group_id)
+            result = await session.execute(stmt)
+            for word in result.scalars().all():
+                word.action = action
+            await session.commit()
+            return True
+
+    @staticmethod
+    async def delete_word_group(group_id: int, delete_words: bool = True):
+        """Delete a group. If delete_words, also delete all words in it; otherwise unlink them."""
+        async with AsyncSession(engine) as session:
+            stmt = select(TrackedWord).where(TrackedWord.group_id == group_id)
+            result = await session.execute(stmt)
+            for word in result.scalars().all():
+                if delete_words:
+                    await session.delete(word)
+                else:
+                    word.group_id = None
+            obj = await session.get(WordGroup, group_id)
+            if obj:
+                await session.delete(obj)
+            await session.commit()
+            return True
+
+    @staticmethod
+    async def get_words_by_group(group_id: int):
+        async with AsyncSession(engine) as session:
+            stmt = select(TrackedWord).where(TrackedWord.group_id == group_id).order_by(TrackedWord.id.asc())
+            result = await session.execute(stmt)
+            return result.scalars().all()
+
+    @staticmethod
+    async def get_word_group_count(group_id: int) -> int:
+        async with AsyncSession(engine) as session:
+            stmt = select(func.count(TrackedWord.id)).where(TrackedWord.group_id == group_id)
+            result = await session.execute(stmt)
+            return result.scalar() or 0
+
+    @staticmethod
+    async def bulk_add_tracked_words(guild_id: str, patterns: list[str], is_regex: bool = False, action: str = "notify", group_id: int = None, names: list[str] = None) -> int:
+        """Add multiple tracked words at once. Returns count of words added."""
+        added = 0
+        async with AsyncSession(engine) as session:
+            for idx, pattern in enumerate(patterns):
+                pattern = pattern.strip()
+                if not pattern:
+                    continue
+                word_name = names[idx] if names and idx < len(names) else None
+                obj = TrackedWord(guild_id=guild_id, name=word_name, pattern=pattern, is_regex=is_regex, action=action, group_id=group_id)
+                session.add(obj)
+                added += 1
+            await session.commit()
+        return added
+
+    @staticmethod
+    async def delete_all_tracked_words(guild_id: str):
+        async with AsyncSession(engine) as session:
+            stmt = select(TrackedWord).where(TrackedWord.guild_id == guild_id)
+            result = await session.execute(stmt)
+            for obj in result.scalars().all():
+                await session.delete(obj)
+            await session.commit()
+
     @staticmethod
     async def cleanup_orphaned_role_items():
         async with AsyncSession(engine) as session:
@@ -1296,3 +1480,126 @@ class DatabaseController:
             if count > 0:
                 await session.commit()
             return count
+    # Theory Resources
+    @staticmethod
+    async def add_theory_resource(title: str, resource_type: str, url: str = None, file_data: bytes = None, file_name: str = None, description: str = None, tags: str = None):
+        async with AsyncSession(engine) as session:
+            resource = TheoryResource(
+                title=title, 
+                resource_type=resource_type, 
+                url=url, 
+                file_data=file_data, 
+                file_name=file_name, 
+                description=description, 
+                tags=tags
+            )
+            session.add(resource)
+            await session.commit()
+            return resource
+
+    @staticmethod
+    async def edit_theory_resource(resource_id: int, title: str = None, url: str = None, description: str = None, tags: str = None):
+        async with AsyncSession(engine) as session:
+            resource = await session.get(TheoryResource, resource_id)
+            if not resource:
+                return False
+            if title is not None:
+                resource.title = title
+            if url is not None:
+                resource.url = url
+            if description is not None:
+                resource.description = description
+            if tags is not None:
+                resource.tags = tags
+            await session.commit()
+            return True
+
+    @staticmethod
+    async def get_theory_resource_by_id(resource_id: int):
+        async with AsyncSession(engine) as session:
+            return await session.get(TheoryResource, resource_id)
+
+    @staticmethod
+    async def delete_theory_resource(resource_id: int):
+        async with AsyncSession(engine) as session:
+            resource = await session.get(TheoryResource, resource_id)
+            if resource:
+                await session.delete(resource)
+                await session.commit()
+                return True
+            return False
+
+    @staticmethod
+    async def get_all_theory_resources():
+        async with AsyncSession(engine) as session:
+            result = await session.execute(select(TheoryResource))
+            return result.scalars().all()
+
+    @staticmethod
+    async def search_theory_resources(query: str, limit: int = 500): # Increased default limit
+        async with AsyncSession(engine) as session:
+            if not query:
+                # Remove the .limit(25) to allow browsing the whole library
+                stmt = select(TheoryResource).order_by(TheoryResource.title.asc())
+                result = await session.execute(stmt)
+                return result.scalars().all()
+
+            terms = query.strip().split()
+            stmt = select(TheoryResource)
+            
+            for term in terms:
+                # For every word in the search, it must appear in either Title, Tags, or Description
+                term_filter = f"%{term}%"
+                stmt = stmt.where(
+                    or_(
+                        TheoryResource.title.ilike(term_filter),
+                        TheoryResource.tags.ilike(term_filter),
+                        TheoryResource.description.ilike(term_filter)
+                    )
+                )
+            
+            stmt = stmt.limit(limit)
+            result = await session.execute(stmt)
+            return result.scalars().all()
+
+    @staticmethod
+    async def get_all_theory_tags():
+        async with AsyncSession(engine) as session:
+            result = await session.execute(select(TheoryResource.tags))
+            tags_raw = result.scalars().all()
+            unique_tags = set()
+            for tr in tags_raw:
+                if tr:
+                    for t in tr.split(','):
+                        t_clean = t.strip().lower()
+                        if t_clean: 
+                            unique_tags.add(t_clean)
+            return sorted(list(unique_tags))
+
+    @staticmethod
+    async def get_theory_resources_by_tag(tag: str):
+        async with AsyncSession(engine) as session:
+            stmt = select(TheoryResource).where(TheoryResource.tags.icontains(tag))
+            result = await session.execute(stmt)
+            return result.scalars().all()
+
+    @staticmethod
+    async def clear_all_theory_resources():
+        async with AsyncSession(engine) as session:
+            # This generates the DELETE statement programmatically
+            await session.execute(delete(TheoryResource))
+            await session.commit()
+
+    @staticmethod
+    async def bulk_add_theory_resources(resources_data: list):
+        async with AsyncSession(engine) as session:
+            added = 0
+            for item in resources_data:
+                stmt = select(TheoryResource).where(TheoryResource.title == item['title'])
+                existing = (await session.execute(stmt)).first()
+                if not existing:
+                    new_res = TheoryResource(**item)
+                    session.add(new_res)
+                    added += 1
+            await session.commit()
+            return added

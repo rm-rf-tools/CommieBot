@@ -10,3 +10,6 @@ sqlmodel==0.0.38
 withoutbg==1.0.2
 rembg==2.0.53
 PyNaCl==1.6.2
+yt-dlp
+gallery-dl
+instaloader

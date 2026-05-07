@@ -3,7 +3,21 @@
 
 from typing import Optional
 from sqlmodel import SQLModel, Field
-from sqlalchemy import UniqueConstraint, Index
+from sqlalchemy import UniqueConstraint, Index, Column, LargeBinary
+
+
+class TheoryResource(SQLModel, table=True):
+    __tablename__ = "theory_resources"
+    
+    id: Optional[int] = Field(default=None, primary_key=True)
+    title: str
+    resource_type: str 
+    url: Optional[str] = None
+    file_data: Optional[bytes] = Field(default=None, sa_column=Column(LargeBinary))
+    file_name: Optional[str] = None
+    description: Optional[str] = None
+    tags: Optional[str] = None
+
 
 class ServerConfig(SQLModel, table=True):
     __tablename__ = "server_configs"
@@ -209,6 +223,24 @@ class Movie(SQLModel, table=True):
     production_countries: Optional[str] = None
     spoken_languages: Optional[str] = None
     keywords: Optional[str] = None
+
+class WordGroup(SQLModel, table=True):
+    __tablename__ = "word_groups"
+    id: Optional[int] = Field(default=None, primary_key=True)
+    guild_id: str = Field(index=True)
+    name: str
+    action: str = Field(default="notify")
+    created_at: Optional[int] = None
+
+class TrackedWord(SQLModel, table=True):
+    __tablename__ = "tracked_words"
+    id: Optional[int] = Field(default=None, primary_key=True)
+    guild_id: str = Field(index=True)
+    name: Optional[str] = Field(default=None)
+    pattern: str
+    is_regex: bool = Field(default=False)
+    action: str = Field(default="notify")  # 'notify', 'delete', 'kick', 'ban'
+    group_id: Optional[int] = Field(default=None, foreign_key="word_groups.id", ondelete="SET NULL")
 
 # --- React Roles Models ---
 class RolePlan(SQLModel, table=True):

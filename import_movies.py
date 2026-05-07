@@ -7,7 +7,7 @@ from sqlalchemy.ext.asyncio import create_async_engine, AsyncSession
 from sqlalchemy import text
 from sqlmodel import SQLModel
 
-from models import Movie
+from db.models import Movie
 
 DB_PATH = "./data/mutual_aid.db"
 DATABASE_URL = f"sqlite+aiosqlite:///{DB_PATH.lstrip('./')}"
