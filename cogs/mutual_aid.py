@@ -3,7 +3,7 @@
 filename: mutual_aid.py
 description: Manages mutual aid requests, donations, and role pinging via name-based requests. Features an interactive dashboard for creators.
 Views:
-    - ContributionView: Persistent view with a 'Donate' button to log contributions. Extracts name from the embed.
+    - ContributionView: Persistent view with a 'Donate' button to log contributions. Extracts ID from the embed footer.
     - AidPaginator: Handles pagination for listing aid requests cleanly.
     - ContributeModal: Modal for logging a contribution, passed the aid name and original message.
     - AidDashboardView: Interactive dashboard for a user to manage their mutual aid requests.
@@ -77,7 +77,6 @@ class ContributeModal(discord.ui.Modal, title='Log Contribution'):
         was_already_completed = (status == 'completed')
         is_now_completed = (new_total >= req_amount) or was_already_completed
 
-        # DB Updates
         await DatabaseController.update_aid_progress_by_name(
             str(interaction.guild_id), 
             self.aid_name, 
@@ -85,29 +84,29 @@ class ContributeModal(discord.ui.Modal, title='Log Contribution'):
             status='completed' if is_now_completed else 'active'
         )
 
-        # Message Embed UI Update
         if self.origin_message and self.origin_message.embeds:
             embed = self.origin_message.embeds[0]
             
-            # Update the progress text live
             for i, field in enumerate(embed.fields):
                 if field.name in ["Goal", "Progress"]:
                     embed.set_field_at(i, name="Progress", value=f"${new_total:.2f} / ${req_amount:.2f}", inline=field.inline)
                     break
             
-            # If it's done, turn the embed green, alter the title, and remove the button
+            old_footer = embed.footer.text if embed.footer else f"Click the button below or use /aid donate <name> <amount> to contribute!"
+            
             if is_now_completed:
                 embed.color = discord.Color.brand_green()
                 if not embed.title.startswith("🎉 GOAL REACHED"):
                     clean_title = embed.title.replace("Aid Request: ", "").replace("**", "")
                     embed.title = f"🎉 GOAL REACHED: {clean_title}"
-                embed.set_footer(text="This request has been fully funded!")
+                embed.set_footer(text=f"{old_footer}\nStatus: Fully Funded!")
                 
                 try:
                     await self.origin_message.edit(embed=embed, view=None)
                 except discord.HTTPException:
                     pass
             else:
+                embed.set_footer(text=old_footer)
                 try:
                     await self.origin_message.edit(embed=embed)
                 except discord.HTTPException:
@@ -115,7 +114,6 @@ class ContributeModal(discord.ui.Modal, title='Log Contribution'):
 
         allowed_mentions = discord.AllowedMentions(users=[discord.Object(id=target_user_id)])
 
-        # Reply Logic
         if was_already_completed:
             await interaction.response.send_message(
                 f"✅ (This goal has already been reached but we logged your contribution of ${amount:.2f} to <@{target_user_id}>, thank you!)",
@@ -141,25 +139,30 @@ class ContributionView(discord.ui.View):
     @discord.ui.button(label="💸 Log Contribution", style=discord.ButtonStyle.success, custom_id="persistent_contribute_btn")
     async def contribute_button(self, interaction: discord.Interaction, button: discord.ui.Button):
         embed = interaction.message.embeds[0]
-        
-        # Determine the name. Fallback handles older unmigrated embeds that still use ID
-        match_name = re.search(r'Aid Request:\s*\*\*(.+)\*\*', embed.title)
-        if not match_name:
-            # Also try to match GOAL REACHED title
-            match_name = re.search(r'GOAL REACHED:\s*(.+)', embed.title)
-            
-        match_id = re.search(r'(?:ID:\s*|#)(\d+)', embed.title)
-        
         aid_name = None
         
-        if match_name:
-            aid_name = match_name.group(1).strip()
-        elif match_id:
-            aid_id = int(match_id.group(1))
-            aid_name = await DatabaseController.get_aid_name_by_id(aid_id)
+        # 1. Try to extract persistent Database ID from footer
+        if embed.footer and embed.footer.text:
+            match_id = re.search(r'Aid ID:\s*(\d+)', embed.footer.text)
+            if match_id:
+                aid_id = int(match_id.group(1))
+                aid_name = await DatabaseController.get_aid_name_by_id(aid_id)
+
+        # 2. Fallback for legacy embeds missing the footer ID
+        if not aid_name:
+            match_name = re.search(r'Aid Request:\s*\*\*(.+)\*\*', embed.title)
+            if not match_name:
+                match_name = re.search(r'GOAL REACHED:\s*(.+)', embed.title)
+            if match_name:
+                aid_name = match_name.group(1).strip()
+                
+            legacy_match_id = re.search(r'(?:ID:\s*|#)(\d+)', embed.title)
+            if not aid_name and legacy_match_id:
+                aid_id = int(legacy_match_id.group(1))
+                aid_name = await DatabaseController.get_aid_name_by_id(aid_id)
 
         if not aid_name:
-            return await interaction.response.send_message("❌ Could not resolve the aid request name from this message.", ephemeral=True)
+            return await interaction.response.send_message("❌ Could not resolve the aid request from this message.", ephemeral=True)
         
         await interaction.response.send_modal(ContributeModal(aid_name=aid_name, origin_message=interaction.message))
 
@@ -185,7 +188,8 @@ class AidCreateModal(discord.ui.Modal, title="Create Aid Request"):
         aid_name_val = self.aid_name.value.strip()
         desc_val = self.description.value.strip()
         
-        await DatabaseController.create_aid(str(interaction.guild_id), str(interaction.channel_id), str(interaction.user.id), aid_name_val, amt, desc_val)
+        # Returns the permanent aid_id
+        aid_id = await DatabaseController.create_aid(str(interaction.guild_id), str(interaction.channel_id), str(interaction.user.id), aid_name_val, amt, desc_val)
         
         role_id = await DatabaseController.get_role(str(interaction.guild_id))
         role_ping = f"<@&{role_id}>" if role_id else "*(No ping role configured. Admins can use `/aid role set`)*"
@@ -194,9 +198,8 @@ class AidCreateModal(discord.ui.Modal, title="Create Aid Request"):
         embed.add_field(name="Requester", value=interaction.user.mention, inline=False)
         embed.add_field(name="Progress", value=f"$0.00 / ${amt:.2f}", inline=True)
         embed.add_field(name="Description", value=desc_val, inline=False)
-        embed.set_footer(text=f"Click the button below or use /aid donate <name> <amount> to contribute!")
+        embed.set_footer(text=f"Aid ID: {aid_id} | Click the button below or use /aid donate <name> <amount> to contribute!")
         
-        # Post the new aid message publically
         await interaction.channel.send(
             content=role_ping, 
             embed=embed, 
@@ -212,6 +215,7 @@ class AidEditModal(discord.ui.Modal):
     def __init__(self, parent_view, aid_data):
         super().__init__(title=f"Edit: {aid_data[1][:30]}")
         self.parent_view = parent_view
+        self.aid_id = aid_data[0]
         self.old_name = aid_data[1]
         
         self.new_name = discord.ui.TextInput(label="New Name (Optional)", default=aid_data[1], required=False)
@@ -232,6 +236,7 @@ class AidEditModal(discord.ui.Modal):
                 
         new_name_val = self.new_name.value.strip() if self.new_name.value.strip() else None
         
+        # 1. Update Database
         await DatabaseController.edit_aid(
             str(interaction.guild_id), 
             self.old_name, 
@@ -242,9 +247,12 @@ class AidEditModal(discord.ui.Modal):
         
         lookup_name = new_name_val if new_name_val else self.old_name
         updated_aid = await DatabaseController.get_aid_by_name(str(interaction.guild_id), lookup_name)
+        aid_db_info = await DatabaseController.get_aid_by_id(self.aid_id, str(interaction.guild_id))
         
-        if updated_aid:
+        # 2. Update existing card in channel history
+        if updated_aid and aid_db_info:
             name, target_user_id, req_amount, rec_amount, reason, status = updated_aid
+            channel_id = aid_db_info[2]
             
             role_id = await DatabaseController.get_role(str(interaction.guild_id))
             role_ping = f"<@&{role_id}>" if role_id else "*(No ping role configured. Admins can use `/aid role set`)*"
@@ -253,15 +261,34 @@ class AidEditModal(discord.ui.Modal):
             embed.add_field(name="Requester", value=f"<@{target_user_id}>", inline=False)
             embed.add_field(name="Progress", value=f"${rec_amount:.2f} / ${req_amount:.2f}", inline=True)
             embed.add_field(name="Description", value=reason, inline=False)
-            embed.set_footer(text=f"Click the button below or use /aid donate <name> <amount> to contribute!")
+            embed.set_footer(text=f"Aid ID: {self.aid_id} | Click the button below or use /aid donate <name> <amount> to contribute!")
             
-            # Post the updated public message
-            await interaction.channel.send(
-                content=f"{role_ping} *(Update)*", 
-                embed=embed, 
-                view=ContributionView(),
-                allowed_mentions=discord.AllowedMentions(roles=True)
-            )
+            channel = interaction.guild.get_channel(int(channel_id))
+            edited = False
+            
+            if channel:
+                try:
+                    async for msg in channel.history(limit=100):
+                        if msg.author.id == interaction.guild.me.id and msg.embeds:
+                            footer_text = msg.embeds[0].footer.text or ""
+                            if f"Aid ID: {self.aid_id}" in footer_text:
+                                await msg.edit(embed=embed, view=ContributionView())
+                                edited = True
+                                break
+                except discord.Forbidden:
+                    pass
+            
+            # Post a new ping only if we couldn't edit the old one
+            if not edited and channel:
+                try:
+                    await channel.send(
+                        content=f"{role_ping} *(Update)*", 
+                        embed=embed, 
+                        view=ContributionView(),
+                        allowed_mentions=discord.AllowedMentions(roles=True)
+                    )
+                except discord.Forbidden:
+                    pass
         
         await self.parent_view.fetch_data()
         self.parent_view.selected_aid = None
@@ -283,7 +310,7 @@ class AidDashboardView(discord.ui.View):
         self.clear_items()
         
         if self.user_aids:
-            options = []
+            options =[]
             for aid_id, name, req, rec, reason in self.user_aids[:25]:
                 options.append(discord.SelectOption(
                     label=name[:100], 
@@ -433,7 +460,7 @@ class MutualAidCommands(commands.GroupCog, name="aid"):
 
         target_user = for_user if for_user else interaction.user
 
-        await DatabaseController.create_aid(str(interaction.guild_id), str(interaction.channel_id), str(target_user.id), name, amount, description)
+        aid_id = await DatabaseController.create_aid(str(interaction.guild_id), str(interaction.channel_id), str(target_user.id), name, amount, description)
         
         role_id = await DatabaseController.get_role(str(interaction.guild_id))
         role_ping = f"<@&{role_id}>" if role_id else "*(No ping role configured. Admins can use `/aid role set`)*"
@@ -442,7 +469,7 @@ class MutualAidCommands(commands.GroupCog, name="aid"):
         embed.add_field(name="Requester", value=target_user.mention, inline=False)
         embed.add_field(name="Progress", value=f"$0.00 / ${amount:.2f}", inline=True)
         embed.add_field(name="Description", value=description, inline=False)
-        embed.set_footer(text=f"Click the button below or use /aid donate <name> <amount> to contribute!")
+        embed.set_footer(text=f"Aid ID: {aid_id} | Click the button below or use /aid donate <name> <amount> to contribute!")
         
         await interaction.response.send_message(
             content=role_ping, 
@@ -463,24 +490,41 @@ class MutualAidCommands(commands.GroupCog, name="aid"):
             display_name = new_name if new_name else aid_name
             
             updated_aid = await DatabaseController.get_aid_by_name(str(interaction.guild_id), display_name)
-            if updated_aid:
+            
+            # Scrape to find the exact database ID from user's active list
+            aid_id = None
+            channel_id = None
+            user_aids = await DatabaseController.get_user_aids(str(interaction.guild_id), str(interaction.user.id))
+            for uid, uname, req, rec, reason in user_aids:
+                if uname.lower() == display_name.lower():
+                    aid_id = uid
+                    break
+            
+            if aid_id:
+                aid_db_info = await DatabaseController.get_aid_by_id(aid_id, str(interaction.guild_id))
+                if aid_db_info:
+                    channel_id = aid_db_info[2]
+
+            if updated_aid and aid_id and channel_id:
                 name, target_user_id, req_amount, rec_amount, reason, status = updated_aid
                 
-                role_id = await DatabaseController.get_role(str(interaction.guild_id))
-                role_ping = f"<@&{role_id}>" if role_id else "*(No ping role configured. Admins can use `/aid role set`)*"
-
                 embed = discord.Embed(title=f"Aid Request: **{name}**", color=discord.Color.blue())
                 embed.add_field(name="Requester", value=f"<@{target_user_id}>", inline=False)
                 embed.add_field(name="Progress", value=f"${rec_amount:.2f} / ${req_amount:.2f}", inline=True)
                 embed.add_field(name="Description", value=reason, inline=False)
-                embed.set_footer(text=f"Click the button below or use /aid donate <name> <amount> to contribute!")
+                embed.set_footer(text=f"Aid ID: {aid_id} | Click the button below or use /aid donate <name> <amount> to contribute!")
                 
-                await interaction.channel.send(
-                    content=f"{role_ping} *(Update)*", 
-                    embed=embed, 
-                    view=ContributionView(),
-                    allowed_mentions=discord.AllowedMentions(roles=True)
-                )
+                channel = interaction.guild.get_channel(int(channel_id))
+                if channel:
+                    try:
+                        async for msg in channel.history(limit=100):
+                            if msg.author.id == interaction.guild.me.id and msg.embeds:
+                                footer_text = msg.embeds[0].footer.text or ""
+                                if f"Aid ID: {aid_id}" in footer_text:
+                                    await msg.edit(embed=embed, view=ContributionView())
+                                    break
+                    except discord.Forbidden:
+                        pass
 
             await interaction.response.send_message(f"✅ Successfully updated the aid request: **{display_name}**.", ephemeral=True)
         else:
