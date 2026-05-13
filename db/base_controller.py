@@ -14,7 +14,7 @@ from .models import (
     TicketStaffRole, Profile, Skill, ProfileSkill, Event, EventAttendance,
     Applicant, FormTemplate, FormQuestion, FormSubmission, FormAnswer,
     ModWatch, ModLogConfig, FocusChannel, GrokReply, UserLastSeen, Movie,
-    RolePlan, RolePlanItem, TrackedWord, WordGroup, TheoryResource
+    RolePlan, RolePlanItem, TrackedWord, WordGroup, TheoryResource, Fact
 )
 
 class DatabaseController:
@@ -1603,3 +1603,80 @@ class DatabaseController:
                     added += 1
             await session.commit()
             return added
+
+    @staticmethod
+    async def set_facts_role(guild_id: str, role_id: Optional[str]):
+        async with AsyncSession(engine) as session:
+            obj = await session.get(ServerConfig, guild_id)
+            if obj:
+                obj.facts_role_id = role_id
+            else:
+                obj = ServerConfig(guild_id=guild_id, facts_role_id=role_id)
+                session.add(obj)
+            await session.commit()
+
+    @staticmethod
+    async def get_facts_role(guild_id: str):
+        async with AsyncSession(engine) as session:
+            obj = await session.get(ServerConfig, guild_id)
+            return obj.facts_role_id if obj else None
+
+    @staticmethod
+    async def set_facts_channel(guild_id: str, channel_id: Optional[str]):
+        async with AsyncSession(engine) as session:
+            obj = await session.get(ServerConfig, guild_id)
+            if obj:
+                obj.facts_channel_id = channel_id
+            else:
+                obj = ServerConfig(guild_id=guild_id, facts_channel_id=channel_id)
+                session.add(obj)
+            await session.commit()
+
+    @staticmethod
+    async def get_facts_channel(guild_id: str):
+        async with AsyncSession(engine) as session:
+            obj = await session.get(ServerConfig, guild_id)
+            return obj.facts_channel_id if obj else None
+
+    @staticmethod
+    async def add_fact(guild_id: str, content: str, added_by: str) -> int:
+        async with AsyncSession(engine) as session:
+            obj = Fact(guild_id=guild_id, content=content, added_by=added_by)
+            session.add(obj)
+            await session.commit()
+            await session.refresh(obj)
+            return obj.id
+
+    @staticmethod
+    async def delete_fact(fact_id: int) -> bool:
+        async with AsyncSession(engine) as session:
+            obj = await session.get(Fact, fact_id)
+            if obj:
+                await session.delete(obj)
+                await session.commit()
+                return True
+            return False
+
+    @staticmethod
+    async def get_random_fact(guild_id: str):
+        async with AsyncSession(engine) as session:
+            stmt = select(Fact).where(Fact.guild_id == guild_id).order_by(func.random()).limit(1)
+            result = await session.execute(stmt)
+            return result.scalar_one_or_none()
+            
+    @staticmethod
+    async def search_facts(guild_id: str, query: str):
+        async with AsyncSession(engine) as session:
+            stmt = select(Fact).where(
+                Fact.guild_id == guild_id,
+                Fact.content.ilike(f"%{query}%")
+            ).limit(25)
+            result = await session.execute(stmt)
+            return result.scalars().all()
+            
+    @staticmethod
+    async def get_all_facts(guild_id: str):
+        async with AsyncSession(engine) as session:
+            stmt = select(Fact).where(Fact.guild_id == guild_id).order_by(Fact.id.asc())
+            result = await session.execute(stmt)
+            return result.scalars().all()

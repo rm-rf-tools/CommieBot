@@ -13,3 +13,4 @@ PyNaCl==1.6.2
 yt-dlp
 gallery-dl
 instaloader
+tmdbsimple

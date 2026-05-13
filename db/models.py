@@ -29,6 +29,15 @@ class ServerConfig(SQLModel, table=True):
     autorole_id: Optional[str] = None
     autorole_enabled: bool = Field(default=False)
     focus_role_id: Optional[str] = None 
+    facts_role_id: Optional[str] = None
+    facts_channel_id: Optional[str] = None
+
+class Fact(SQLModel, table=True):
+    __tablename__ = "facts"
+    id: Optional[int] = Field(default=None, primary_key=True)
+    guild_id: str = Field(index=True)
+    content: str
+    added_by: str
 
 class Aid(SQLModel, table=True):
     __tablename__ = "aids"

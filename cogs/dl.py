@@ -94,6 +94,7 @@ class DLCog(commands.GroupCog, name="dl"):
             'outtmpl': os.path.join(req_dir, '%(title)s.%(ext)s'),
             'format': 'bestvideo[ext=mp4]+bestaudio[ext=m4a]/best[ext=mp4]/best',
             'merge_output_format': 'mp4',
+            'restrictfilenames': True,  # Ensures yt-dlp normalizes output names heavily
             'quiet': True,
             'no_warnings': True,
         }
@@ -103,7 +104,6 @@ class DLCog(commands.GroupCog, name="dl"):
             
         # ==========================================
         # DOWNLOAD FLOW ROUTING
-        # Easily edit this section to add new host fallbacks
         # ==========================================
         host = get_hostname(url)
         success = False
@@ -133,8 +133,6 @@ class DLCog(commands.GroupCog, name="dl"):
                 success, err = await self.fallback_instaloader(url, req_dir)
                 if not success:
                     error_msgs.append(f"instaloader: {err}")
-            # elif host in['tiktok.com']:
-            #     success, err = await self.fallback_other(url, req_dir)
                 
         # ==========================================
         
@@ -147,10 +145,14 @@ class DLCog(commands.GroupCog, name="dl"):
             if not downloaded_videos:
                 return await interaction.followup.send("❌ No video file found after successful download step.")
                 
-            # Rename the file to our UUID to easily locate the shrunk version later
             orig_file = downloaded_videos[0]
-            ext = os.path.splitext(orig_file)[1]
-            actual_file = os.path.join(req_dir, f"{req_id}{ext}")
+            
+            # Strip extension completely to ensure it's normalized to a-zA-Z0-9
+            raw_ext = os.path.splitext(orig_file)[1].lower()
+            clean_ext = re.sub(r'[^a-z0-9]', '', raw_ext) 
+            
+            # req_id is a hex UUID (strictly alphanumeric), fulfilling the strict naming constraint
+            actual_file = os.path.join(req_dir, f"{req_id}.{clean_ext}")
             os.rename(orig_file, actual_file)
             
             file_size_mb = os.path.getsize(actual_file) / (1024 * 1024)
@@ -173,7 +175,8 @@ class DLCog(commands.GroupCog, name="dl"):
                 stdout, stderr = await process.communicate()
                 
                 if process.returncode != 0:
-                    error_msg = stderr.decode('utf-8')[:500]
+                    # FIX: Safely replace invalid encoding characters rather than throwing an Exception
+                    error_msg = stderr.decode('utf-8', errors='replace')[:500] if stderr else "Unknown failure from shrinker."
                     return await interaction.followup.send(f"❌ Shrinker failed: ```\n{error_msg}\n```")
                 
                 # Verify the shrunk file was placed in ./videos/shrunk_<req_id>...

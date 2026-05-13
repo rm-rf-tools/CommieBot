@@ -43,6 +43,8 @@ class MutualAidBot(commands.Bot):
         await self.load_extension("cogs.roles")
         await self.load_extension("cogs.ml_resources")
         await self.load_extension("cogs.dl") 
+        # await self.load_extension("cogs.facts") 
+
         
         await self.tree.sync()
         print("Slash commands synced and database initialized.")
