@@ -3,6 +3,7 @@
 import os
 import time
 import csv
+import asyncio
 from typing import Optional
 from sqlalchemy.exc import IntegrityError
 from sqlmodel import SQLModel, select, or_, func
@@ -14,7 +15,7 @@ from .models import (
     TicketStaffRole, Profile, Skill, ProfileSkill, Event, EventAttendance,
     Applicant, FormTemplate, FormQuestion, FormSubmission, FormAnswer,
     ModWatch, ModLogConfig, FocusChannel, GrokReply, UserLastSeen, Movie,
-    RolePlan, RolePlanItem, TrackedWord, WordGroup, TheoryResource, Fact
+    RolePlan, RolePlanItem, TrackedWord, WordGroup, TheoryResource, Fact, MovieListItem, MovieList
 )
 
 class DatabaseController:
@@ -122,6 +123,168 @@ class DatabaseController:
             stmt = stmt.order_by(Movie.popularity.desc()).limit(limit)
             result = await session.execute(stmt)
             return result.scalars().all()
+
+    # --- Movie List Methods ---
+    @staticmethod
+    async def create_movie_list(guild_id: str, user_id: str, name: str, description: str = None, is_default: bool = False) -> Optional[int]:
+        async with AsyncSession(engine) as session:
+            stmt = select(RolePlan).where(MovieList.guild_id == guild_id, func.lower(MovieList.name) == name.lower())
+            existing = (await session.execute(stmt)).scalar_one_or_none()
+            if existing:
+                return None
+            
+            new_list = MovieList(guild_id=guild_id, user_id=user_id, name=name, description=description, is_default=is_default)
+            session.add(new_list)
+            await session.commit()
+            await session.refresh(new_list)
+            return new_list.id
+
+    @staticmethod
+    async def get_movie_lists(guild_id: str):
+        async with AsyncSession(engine) as session:
+            stmt = select(MovieList).where(MovieList.guild_id == guild_id).order_by(MovieList.name.asc())
+            result = await session.execute(stmt)
+            return result.scalars().all()
+
+    @staticmethod
+    async def get_movie_list_by_name(guild_id: str, name: str):
+        async with AsyncSession(engine) as session:
+            stmt = select(MovieList).where(MovieList.guild_id == guild_id, func.lower(MovieList.name) == name.lower())
+            result = await session.execute(stmt)
+            return result.scalar_one_or_none()
+
+    @staticmethod
+    async def get_movie_list_by_id(list_id: int):
+        async with AsyncSession(engine) as session:
+            return await session.get(MovieList, list_id)
+
+    @staticmethod
+    async def edit_movie_list(list_id: int, new_name: str, new_description: str):
+        async with AsyncSession(engine) as session:
+            lst = await session.get(MovieList, list_id)
+            if lst:
+                lst.name = new_name
+                lst.description = new_description
+                await session.commit()
+
+    @staticmethod
+    async def delete_movie_list(list_id: int) -> bool:
+        async with AsyncSession(engine) as session:
+            lst = await session.get(MovieList, list_id)
+            if lst:
+                await session.delete(lst)
+                await session.commit()
+                return True
+            return False
+
+    @staticmethod
+    async def add_movie_to_list(list_id: int, movie_id: int = None, custom_title: str = None, watch_date: str = None, host_id: str = None, order_index: int = 0):
+        async with AsyncSession(engine) as session:
+            item = MovieListItem(list_id=list_id, movie_id=movie_id, custom_title=custom_title, watch_date=watch_date, host_id=host_id, order_index=order_index)
+            session.add(item)
+            await session.commit()
+
+    @staticmethod
+    async def get_movie_list_items(list_id: int):
+        async with AsyncSession(engine) as session:
+            stmt = select(MovieListItem, Movie).outerjoin(
+                Movie, MovieListItem.movie_id == Movie.id
+            ).where(MovieListItem.list_id == list_id).order_by(MovieListItem.order_index.asc(), MovieListItem.id.asc())
+            result = await session.execute(stmt)
+            return result.all()
+
+    # --- Movie List Methods ---
+    _populating_lists = set()
+
+    @staticmethod
+    async def clear_movie_list_items(list_id: int):
+        """Wipes all movies currently in a specific list so it can be rebuilt clean."""
+        async with AsyncSession(engine) as session:
+            stmt = select(MovieListItem).where(MovieListItem.list_id == list_id)
+            result = await session.execute(stmt)
+            for item in result.scalars().all():
+                await session.delete(item)
+            await session.commit()
+
+    @staticmethod
+    async def ensure_default_movie_list(guild_id: str, bot_id: str):
+        """Ensures the 'Movie Night' list exists and parses movielist.txt if newly created."""
+        async with AsyncSession(engine) as session:
+            stmt = select(MovieList).where(MovieList.guild_id == guild_id, MovieList.is_default == True)
+            default_list = (await session.execute(stmt)).scalar_one_or_none()
+            
+            if not default_list:
+                logger.info(f"Creating default Movie Night list for guild {guild_id}")
+                default_list = MovieList(guild_id=guild_id, user_id=bot_id, name="Movie Night", description="Server default movie night list.", is_default=True)
+                session.add(default_list)
+                await session.commit()
+                await session.refresh(default_list)
+                
+                import asyncio
+                asyncio.create_task(DatabaseController._populate_default_list(default_list.id))
+            else:
+                # Check if it's completely empty, if so, trigger population just in case it failed before
+                stmt_items = select(func.count(MovieListItem.id)).where(MovieListItem.list_id == default_list.id)
+                count = (await session.execute(stmt_items)).scalar()
+                if count == 0:
+                    logger.info(f"Default list for guild {guild_id} is empty. Triggering population.")
+                    import asyncio
+                    asyncio.create_task(DatabaseController._populate_default_list(default_list.id))
+            
+            return default_list
+
+    @staticmethod
+    async def _populate_default_list(list_id: int):
+        """Background task to populate the default list from CSV. Protected by a lock."""
+        if list_id in DatabaseController._populating_lists:
+            logger.warning(f"List {list_id} is already being populated. Skipping duplicate task.")
+            return
+            
+        DatabaseController._populating_lists.add(list_id)
+        import asyncio
+        try:
+            filepath = "data/csv/movielist.txt"
+            if not os.path.exists(filepath):
+                filepath = "data/csv/movieslist.txt"
+                
+            if not os.path.exists(filepath):
+                logger.error(f"Could not find {filepath} to populate default list. Make sure the file exists!")
+                return
+                
+            # Wipe existing items FIRST just to guarantee no duplicates if re-running
+            await DatabaseController.clear_movie_list_items(list_id)
+            
+            with open(filepath, "r", encoding="utf-8") as f:
+                lines = f.readlines()
+                
+            from .movies_api import MoviesDBController
+            logger.info(f"Populating list ID {list_id} with {len(lines)} movies... This may take a minute.")
+            
+            for order, line in enumerate(lines):
+                title = line.strip()
+                if not title:
+                    continue
+                    
+                # Clean up title: 'akira - 1988' -> 'akira'
+                search_title = title.split("-")[0].strip()
+                
+                results = await MoviesDBController.search_and_cache(search_title, limit=1)
+                movie_id = results[0].id if results else None
+                custom_title = title if not movie_id else None
+                
+                await DatabaseController.add_movie_to_list(
+                    list_id=list_id, 
+                    movie_id=movie_id, 
+                    custom_title=custom_title,
+                    order_index=order
+                )
+                await asyncio.sleep(1.0) # Prevent TMDB rate limiting
+                
+            logger.info(f"✅ Finished populating default list ID {list_id}.")
+        except Exception as e:
+            logger.error(f"Error populating list: {e}", exc_info=True)
+        finally:
+            DatabaseController._populating_lists.discard(list_id)
 
     @staticmethod
     async def add_quote_template(name: str, file_path: str):

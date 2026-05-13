@@ -206,6 +206,25 @@ class UserLastSeen(SQLModel, table=True):
     user_id: str = Field(primary_key=True)
     last_seen_at: int
 
+class MovieList(SQLModel, table=True):
+    __tablename__ = "movie_lists"
+    id: Optional[int] = Field(default=None, primary_key=True)
+    guild_id: str = Field(index=True)
+    user_id: str
+    name: str
+    description: Optional[str] = None
+    is_default: bool = Field(default=False)
+
+class MovieListItem(SQLModel, table=True):
+    __tablename__ = "movie_list_items"
+    id: Optional[int] = Field(default=None, primary_key=True)
+    list_id: int = Field(foreign_key="movie_lists.id", ondelete="CASCADE")
+    movie_id: Optional[int] = Field(default=None, foreign_key="movies.id", ondelete="SET NULL")
+    custom_title: Optional[str] = None
+    order_index: int = Field(default=0)
+    watch_date: Optional[str] = None
+    host_id: Optional[str] = None
+
 class Movie(SQLModel, table=True):
     __tablename__ = "movies"
     id: int = Field(primary_key=True)

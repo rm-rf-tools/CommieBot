@@ -55,15 +55,6 @@ sudo sh ./get-docker.sh
 **Attendance (WIP)**
 * `/attendance` <event_id>
 
-### Development with Aider
-To enable an automated development loop with Aider, you can use the following command to have Aider automatically run builds and check for syntax/startup errors:
 
-```bash
-aider --test "docker compose up -d --build && sleep 5 && docker compose ps | grep healthy"
-```
-
-For faster local iteration on syntax checks without a full rebuild:
-```bash
-aider --watch --test "python -m compileall ."
 ```
 
