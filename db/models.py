@@ -224,6 +224,10 @@ class MovieListItem(SQLModel, table=True):
     order_index: int = Field(default=0)
     watch_date: Optional[str] = None
     host_id: Optional[str] = None
+    film_type: Optional[str] = None
+    season_number: Optional[int] = None
+    episodes_list: Optional[str] = None
+    custom_release_date: Optional[str] = None
 
 class Movie(SQLModel, table=True):
     __tablename__ = "movies"

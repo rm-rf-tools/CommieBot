@@ -178,11 +178,62 @@ class DatabaseController:
             return False
 
     @staticmethod
-    async def add_movie_to_list(list_id: int, movie_id: int = None, custom_title: str = None, watch_date: str = None, host_id: str = None, order_index: int = 0):
+    async def add_movie_to_list(list_id: int, movie_id: int = None, custom_title: str = None, watch_date: str = None, host_id: str = None, order_index: int = -1):
         async with AsyncSession(engine) as session:
+            # Auto-assign the highest order_index + 1 if not specified
+            if order_index == -1:
+                stmt = select(func.max(MovieListItem.order_index)).where(MovieListItem.list_id == list_id)
+                max_order = (await session.execute(stmt)).scalar() or 0
+                order_index = max_order + 1
+                
             item = MovieListItem(list_id=list_id, movie_id=movie_id, custom_title=custom_title, watch_date=watch_date, host_id=host_id, order_index=order_index)
             session.add(item)
             await session.commit()
+
+    @staticmethod
+    async def update_movie_list_item(item_id: int, watch_date: str = None, host_id: str = None, film_type: str = None, season_number: int = None, episodes_list: str = None, custom_release_date: str = None):
+        async with AsyncSession(engine) as session:
+            item = await session.get(MovieListItem, item_id)
+            if item:
+                if watch_date is not None: item.watch_date = watch_date
+                if host_id is not None: item.host_id = host_id
+                if film_type is not None: item.film_type = film_type
+                if season_number is not None: item.season_number = season_number
+                if episodes_list is not None: item.episodes_list = episodes_list
+                if custom_release_date is not None: item.custom_release_date = custom_release_date
+                await session.commit()
+                return True
+            return False
+
+    @staticmethod
+    async def remove_movie_list_item(item_id: int):
+        async with AsyncSession(engine) as session:
+            item = await session.get(MovieListItem, item_id)
+            if item:
+                await session.delete(item)
+                await session.commit()
+                return True
+            return False
+
+    @staticmethod
+    async def reorder_movie_list_item(list_id: int, item_id: int, new_position: int):
+        async with AsyncSession(engine) as session:
+            stmt = select(MovieListItem).where(MovieListItem.list_id == list_id).order_by(MovieListItem.order_index.asc(), MovieListItem.id.asc())
+            items = list((await session.execute(stmt)).scalars().all())
+            
+            target = next((i for i in items if i.id == item_id), None)
+            if not target:
+                return False
+                
+            items.remove(target)
+            new_position = max(1, min(new_position, len(items) + 1))
+            items.insert(new_position - 1, target)
+            
+            for idx, item in enumerate(items):
+                item.order_index = idx + 1
+                
+            await session.commit()
+            return True
 
     @staticmethod
     async def get_movie_list_items(list_id: int):

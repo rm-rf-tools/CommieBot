@@ -1,21 +1,24 @@
 """
-filename: film.py
-description: Search TMDB, view movie previews, and manage collaborative movie lists.
+filename: cogs/film.py
+description: Search TMDB, view movie previews, and manage robust collaborative movie and series watchlists.
 Views:
-    - MoviePaginator: Handles pagination of movie search results with previous/next buttons.
-    - MovieListManageView: Interactive dashboard for managing user-owned movie lists.
-    - MovieListFormModal: Modal for creating or editing movie list details.
-    - MovieAddModal: Modal to input movie title, watch date, and host name.
-    - MovieSearchSelectionView: Dropdown menu allowing a user to finalize their movie choice from a TMDB search query.
-    - ListShowPaginator: Handles pagination for displaying movies stored in a specific list.
+    - MoviePaginator: Handles pagination of movie search results with an easy "Add to List" drop down select.
+    - AddToListSelectView: Ephemeral view for selecting which list to add a searched TMDB movie to.
+    - ListShowPaginator: Handles pagination for displaying a high-level overview of a specific movie list.
+    - ItemManagePaginator: An interactive per-item slide dashboard for editing, reordering, or removing specific items on a list.
 Commands:
-    - /film search <query>: Search for a movie and view a beautiful preview card. Uses TMDB fallback. (User)
-    - /movies manage: Open an interactive dashboard to create, edit, or delete your movie lists. (User)
-    - /movies add <list_name>: Add a new movie to a list with optional watch dates and host info. (User)
-    - /movies list show <list_name>: Display all movies currently queued up on a specific list. (User)
-    - /movies list delete <list_name>: Delete a movie list entirely. (Mod/Owner)
+    - /film search <query>: Search for a movie and view a preview card. Contains easy button to Add to List. (User)
+    - /movies list new <name> [description]: Create a new list. (User)
+    - /movies list delete <name>: Delete a movie list entirely. (List Owner / Mod)
+    - /movies list edit <name> [new_name] [new_description]: Edit the name or description of a list. (List Owner / Mod)
+    - /movies list manage <name>: Open the slide dashboard to reorder, remove, or edit info/episodes for items on the list. (List Owner / Mod)
+    - /movies list show <name>: Display all movies currently queued up on a specific list in a neat paginator. (User)
+    - /movies list export <name>: Export the entire list to CSV format for download. (User)
+    - /movies admin_repopulate: Repopulate the default list from the text file. (Mod)
 """
 
+import csv
+import io
 import discord
 from discord import app_commands
 from discord.ext import commands
@@ -28,8 +31,55 @@ logger = logging.getLogger("FilmCog")
 logger.setLevel(logging.INFO)
 
 # ==========================================
+#             HELPERS
+# ==========================================
+
+def expand_episodes(ep_str: str) -> str:
+    if not ep_str:
+        return ""
+    parts = ep_str.split(',')
+    res =[]
+    for part in parts:
+        part = part.strip()
+        if '-' in part:
+            try:
+                start, end = map(int, part.split('-'))
+                if start <= end:
+                    res.extend(range(start, end + 1))
+            except ValueError:
+                pass
+        else:
+            try:
+                res.append(int(part))
+            except ValueError:
+                pass
+    if not res:
+        return ep_str
+    res = sorted(list(set(res)))
+    return ", ".join(map(str, res))
+
+# ==========================================
 #             UI COMPONENTS
 # ==========================================
+
+class AddToListSelectView(discord.ui.View):
+    def __init__(self, movie, user: discord.Member, lists: list):
+        super().__init__(timeout=120)
+        self.movie = movie
+        
+        options = [
+            discord.SelectOption(label=lst.name[:100], description=(lst.description or "")[:50], value=str(lst.id))
+            for lst in lists[:25]
+        ]
+        sel = discord.ui.Select(placeholder="Select a list...", options=options)
+        
+        async def cb(interaction: discord.Interaction):
+            list_id = int(sel.values[0])
+            await DatabaseController.add_movie_to_list(list_id, movie_id=self.movie.id)
+            await interaction.response.edit_message(content=f"✅ Successfully added **{self.movie.title}** to your list!", view=None)
+            
+        sel.callback = cb
+        self.add_item(sel)
 
 class MoviePaginator(discord.ui.View):
     def __init__(self, movies: list):
@@ -39,8 +89,11 @@ class MoviePaginator(discord.ui.View):
         self.update_buttons()
 
     def update_buttons(self):
-        self.prev_btn.disabled = self.current_page == 0
-        self.next_btn.disabled = self.current_page == len(self.movies) - 1
+        for child in self.children:
+            if getattr(child, "custom_id", None) == "prev_btn":
+                child.disabled = self.current_page == 0
+            elif getattr(child, "custom_id", None) == "next_btn":
+                child.disabled = self.current_page == len(self.movies) - 1
 
     def generate_embed(self) -> discord.Embed:
         movie = self.movies[self.current_page]
@@ -72,18 +125,29 @@ class MoviePaginator(discord.ui.View):
         embed.set_footer(text=f"Result {self.current_page + 1} of {len(self.movies)} | TMDB Database")
         return embed
 
-    @discord.ui.button(label="◀️ Previous", style=discord.ButtonStyle.secondary, custom_id="prev_btn")
+    @discord.ui.button(label="◀️ Previous", style=discord.ButtonStyle.secondary, custom_id="prev_btn", row=0)
     async def prev_btn(self, interaction: discord.Interaction, button: discord.ui.Button):
         self.current_page -= 1
         self.update_buttons()
         await interaction.response.edit_message(embed=self.generate_embed(), view=self)
 
-    @discord.ui.button(label="Next ▶️", style=discord.ButtonStyle.primary, custom_id="next_btn")
+    @discord.ui.button(label="Next ▶️", style=discord.ButtonStyle.primary, custom_id="next_btn", row=0)
     async def next_btn(self, interaction: discord.Interaction, button: discord.ui.Button):
         self.current_page += 1
         self.update_buttons()
         await interaction.response.edit_message(embed=self.generate_embed(), view=self)
 
+    @discord.ui.button(label="➕ Add to List", style=discord.ButtonStyle.success, row=1)
+    async def add_btn(self, interaction: discord.Interaction, button: discord.ui.Button):
+        user_lists = await DatabaseController.get_movie_lists(str(interaction.guild_id))
+        if not interaction.user.guild_permissions.manage_messages:
+            user_lists = [l for l in user_lists if l.user_id == str(interaction.user.id)]
+            
+        if not user_lists:
+            return await interaction.response.send_message("❌ You don't have any lists available. Create one with `/movies list new`.", ephemeral=True)
+            
+        view = AddToListSelectView(self.movies[self.current_page], interaction.user, user_lists)
+        await interaction.response.send_message(f"Add **{self.movies[self.current_page].title}** to which list?", view=view, ephemeral=True)
 
 class ListShowPaginator(discord.ui.View):
     def __init__(self, list_obj, items: list):
@@ -111,27 +175,29 @@ class ListShowPaginator(discord.ui.View):
         page_items = self.items[start:end]
         
         if not page_items:
-            embed.add_field(name="Empty", value="This list has no movies yet.")
+            embed.add_field(name="Empty", value="This list has no items yet.")
             return embed
 
         for list_item, movie in page_items:
             title = movie.title if movie else list_item.custom_title
-            year = f" ({movie.release_date[:4]})" if (movie and movie.release_date) else ""
+            year_str = list_item.custom_release_date or (movie.release_date[:4] if movie and movie.release_date else "")
+            year_display = f" ({year_str})" if year_str else ""
             
             details =[]
-            if list_item.watch_date:
-                details.append(f"📅 **Date:** {list_item.watch_date}")
-            if list_item.host_id:
-                # We just print the string exactly as they typed it in the modal
-                details.append(f"🎤 **Host:** {list_item.host_id}")
-            if movie and movie.vote_average:
-                details.append(f"⭐ {movie.vote_average:.1f}/10")
+            if list_item.film_type and list_item.film_type.lower() == "series":
+                s_info = f"S{list_item.season_number}" if list_item.season_number else "Series"
+                e_info = f"Eps: {list_item.episodes_list}" if list_item.episodes_list else ""
+                details.append(f"📺 **{s_info}** {e_info}".strip())
+                
+            if list_item.watch_date: details.append(f"📅 **Date:** {list_item.watch_date}")
+            if list_item.host_id: details.append(f"🎤 **Host:** {list_item.host_id}")
+            if movie and movie.vote_average: details.append(f"⭐ {movie.vote_average:.1f}/10")
                 
             val = " | ".join(details) if details else "*No schedule info*"
-            embed.add_field(name=f"🎬 {title}{year}", value=val, inline=False)
+            embed.add_field(name=f"{list_item.order_index}. 🎬 {title}{year_display}", value=val, inline=False)
 
         max_pages = max(1, (len(self.items) + self.per_page - 1) // self.per_page)
-        embed.set_footer(text=f"Page {self.current_page + 1} of {max_pages} | Total: {len(self.items)} movies")
+        embed.set_footer(text=f"Page {self.current_page + 1} of {max_pages} | Total: {len(self.items)} items")
         return embed
 
     @discord.ui.button(label="◀️ Previous", style=discord.ButtonStyle.secondary)
@@ -147,172 +213,224 @@ class ListShowPaginator(discord.ui.View):
         await interaction.response.edit_message(embed=self.generate_embed(), view=self)
 
 
-class MovieListFormModal(discord.ui.Modal):
-    def __init__(self, guild_id: str, user_id: str, existing_list=None):
-        title = "Edit Movie List" if existing_list else "Create Movie List"
-        super().__init__(title=title)
-        self.guild_id = guild_id
-        self.user_id = user_id
-        self.existing_list = existing_list
-
-        self.list_name = discord.ui.TextInput(
-            label="List Name",
-            default=existing_list.name if existing_list else "",
-            required=True
-        )
-        self.list_desc = discord.ui.TextInput(
-            label="Description",
-            style=discord.TextStyle.paragraph,
-            default=existing_list.description if existing_list else "",
-            required=False
-        )
-
-        self.add_item(self.list_name)
-        self.add_item(self.list_desc)
-
+class EditInfoModal(discord.ui.Modal):
+    def __init__(self, item, paginator):
+        super().__init__(title="Edit Schedule & Info")
+        self.item = item
+        self.paginator = paginator
+        
+        self.watch_date = discord.ui.TextInput(label="Watch Date", required=False, default=item.watch_date or "")
+        self.host = discord.ui.TextInput(label="Host Name / @User", required=False, default=item.host_id or "")
+        self.release_date = discord.ui.TextInput(label="Release Year", required=False, default=item.custom_release_date or "")
+        
+        self.add_item(self.watch_date)
+        self.add_item(self.host)
+        self.add_item(self.release_date)
+        
     async def on_submit(self, interaction: discord.Interaction):
-        name = self.list_name.value.strip()
-        desc = self.list_desc.value.strip()
+        await DatabaseController.update_movie_list_item(
+            self.item.id, 
+            watch_date=self.watch_date.value,
+            host_id=self.host.value,
+            custom_release_date=self.release_date.value
+        )
+        await self.paginator.reload_items()
+        await interaction.response.edit_message(embed=self.paginator.generate_embed(), view=self.paginator)
 
-        if self.existing_list:
-            await DatabaseController.edit_movie_list(self.existing_list.id, name, desc)
-            await interaction.response.send_message(f"✅ Updated list **{name}**.", ephemeral=True)
-        else:
-            list_id = await DatabaseController.create_movie_list(self.guild_id, self.user_id, name, desc)
-            if not list_id:
-                await interaction.response.send_message(f"❌ A list named **{name}** already exists.", ephemeral=True)
-            else:
-                await interaction.response.send_message(f"✅ Created list **{name}**.", ephemeral=True)
+class EditSeriesModal(discord.ui.Modal):
+    def __init__(self, item, paginator):
+        super().__init__(title="Edit Series Details")
+        self.item = item
+        self.paginator = paginator
+        
+        self.f_type = discord.ui.TextInput(label="Type (Movie or Series)", required=False, default=item.film_type or "")
+        self.season = discord.ui.TextInput(label="Season Number", required=False, default=str(item.season_number) if item.season_number else "")
+        self.eps = discord.ui.TextInput(label="Episodes (e.g. 1,3-5)", required=False, default=item.episodes_list or "")
+        
+        self.add_item(self.f_type)
+        self.add_item(self.season)
+        self.add_item(self.eps)
+        
+    async def on_submit(self, interaction: discord.Interaction):
+        ep_list = expand_episodes(self.eps.value) if self.eps.value else None
+        season_num = int(self.season.value) if self.season.value and self.season.value.isdigit() else None
+        
+        await DatabaseController.update_movie_list_item(
+            self.item.id,
+            film_type=self.f_type.value,
+            season_number=season_num,
+            episodes_list=ep_list
+        )
+        await self.paginator.reload_items()
+        await interaction.response.edit_message(embed=self.paginator.generate_embed(), view=self.paginator)
 
+class MoveItemModal(discord.ui.Modal):
+    def __init__(self, item, total_items, paginator):
+        super().__init__(title="Move Item Position")
+        self.item = item
+        self.paginator = paginator
+        self.total_items = total_items
+        
+        self.new_pos = discord.ui.TextInput(label=f"New Position (1-{total_items})", required=True)
+        self.add_item(self.new_pos)
+        
+    async def on_submit(self, interaction: discord.Interaction):
+        try:
+            pos = int(self.new_pos.value)
+            await DatabaseController.reorder_movie_list_item(self.item.list_id, self.item.id, pos)
+            await self.paginator.reload_items()
+            self.paginator.current_page = max(0, min(pos - 1, self.total_items - 1))
+            self.paginator.update_components()
+            await interaction.response.edit_message(embed=self.paginator.generate_embed(), view=self.paginator)
+        except ValueError:
+            await interaction.response.send_message("❌ Invalid position number.", ephemeral=True)
 
-class MovieListManageView(discord.ui.View):
-    def __init__(self, guild_id: str, user: discord.Member):
+class AddFilmModal(discord.ui.Modal):
+    def __init__(self, list_id, paginator):
+        super().__init__(title="Add Film")
+        self.list_id = list_id
+        self.paginator = paginator
+        
+        self.title_input = discord.ui.TextInput(label="Title", required=True)
+        self.release_year_input = discord.ui.TextInput(label="Release Year (Optional)", required=False)
+        self.add_item(self.title_input)
+        self.add_item(self.release_year_input)
+        
+    async def on_submit(self, interaction: discord.Interaction):
+        await interaction.response.defer()
+        await DatabaseController.add_movie_to_list(self.list_id, custom_title=self.title_input.value)
+        
+        if self.release_year_input.value:
+            items = await DatabaseController.get_movie_list_items(self.list_id)
+            if items:
+                latest_item = items[-1][0]
+                await DatabaseController.update_movie_list_item(latest_item.id, custom_release_date=self.release_year_input.value)
+                
+        await self.paginator.reload_items()
+        self.paginator.current_page = len(self.paginator.items) - 1 
+        self.paginator.update_components()
+        await interaction.edit_original_response(embed=self.paginator.generate_embed(), view=self.paginator)
+
+class ItemManagePaginator(discord.ui.View):
+    def __init__(self, list_obj, items: list):
         super().__init__(timeout=600)
-        self.guild_id = guild_id
-        self.user = user
-        self.lists =[]
-        self.selected_list = None
+        self.list_obj = list_obj
+        self.items = items
+        self.current_page = 0
+        self.update_components()
 
-    async def fetch_data(self):
-        all_lists = await DatabaseController.get_movie_lists(self.guild_id)
-        if self.user.guild_permissions.manage_messages:
-            self.lists = all_lists
-        else:
-            self.lists = [lst for lst in all_lists if lst.user_id == str(self.user.id)]
-
-    def generate_embed(self) -> discord.Embed:
-        embed = discord.Embed(title="⚙️ Movie List Management", color=discord.Color.dark_purple())
-        if not self.lists:
-            embed.description = "You do not own any movie lists. Click Create below!"
-        else:
-            embed.description = f"You have access to manage **{len(self.lists)}** list(s)."
-        return embed
-
-    async def build_ui(self):
+    def update_components(self):
         self.clear_items()
         
-        if self.lists:
-            options = [
-                discord.SelectOption(label=lst.name, description=lst.description[:50] if lst.description else "No description", value=str(lst.id))
-                for lst in self.lists[:25]
+        btn_first = discord.ui.Button(label="⏮ First", style=discord.ButtonStyle.secondary, disabled=(self.current_page == 0) or not self.items)
+        btn_first.callback = self.go_first
+        
+        btn_prev = discord.ui.Button(label="◀️", style=discord.ButtonStyle.secondary, disabled=(self.current_page == 0) or not self.items)
+        btn_prev.callback = self.go_prev
+        
+        btn_next = discord.ui.Button(label="▶️", style=discord.ButtonStyle.primary, disabled=(self.current_page >= len(self.items) - 1) or not self.items)
+        btn_next.callback = self.go_next
+        
+        btn_last = discord.ui.Button(label="Last ⏭", style=discord.ButtonStyle.primary, disabled=(self.current_page >= len(self.items) - 1) or not self.items)
+        btn_last.callback = self.go_last
+        
+        btn_add = discord.ui.Button(label="➕ Add Film", style=discord.ButtonStyle.success)
+        btn_add.callback = self.add_film
+        
+        self.add_item(btn_first)
+        self.add_item(btn_prev)
+        self.add_item(btn_next)
+        self.add_item(btn_last)
+        self.add_item(btn_add)
+        
+        if self.items:
+            options =[
+                discord.SelectOption(label="Edit Info (Date/Host/Release)", value="edit_info", emoji="📝"),
+                discord.SelectOption(label="Edit Series Details (Season/Eps)", value="edit_series", emoji="📺"),
+                discord.SelectOption(label="Move Position", value="move", emoji="↕️"),
+                discord.SelectOption(label="Remove Item", value="remove", emoji="🗑️")
             ]
-            sel = discord.ui.Select(placeholder="Select a list to edit/delete...", options=options, row=0)
-            
-            async def sel_cb(interaction: discord.Interaction):
-                list_id = int(interaction.data['values'][0])
-                self.selected_list = next((l for l in self.lists if l.id == list_id), None)
-                await self.build_ui()
-                await interaction.response.edit_message(view=self)
-            
-            sel.callback = sel_cb
+            sel = discord.ui.Select(placeholder="Manage this item...", options=options, row=1)
+            sel.callback = self.action_callback
             self.add_item(sel)
 
-        btn_create = discord.ui.Button(label="➕ Create New List", style=discord.ButtonStyle.success, row=1)
-        async def create_cb(interaction: discord.Interaction):
-            await interaction.response.send_modal(MovieListFormModal(self.guild_id, str(self.user.id)))
-        btn_create.callback = create_cb
-        self.add_item(btn_create)
+    async def reload_items(self):
+        self.items = await DatabaseController.get_movie_list_items(self.list_obj.id)
+        self.current_page = max(0, min(self.current_page, len(self.items) - 1))
+        self.update_components()
 
-        btn_edit = discord.ui.Button(label="✏️ Edit Selected", style=discord.ButtonStyle.primary, row=1, disabled=self.selected_list is None)
-        async def edit_cb(interaction: discord.Interaction):
-            if self.selected_list.is_default and not self.user.guild_permissions.manage_guild:
-                return await interaction.response.send_message("❌ Only server admins can edit the default Movie Night list.", ephemeral=True)
-            await interaction.response.send_modal(MovieListFormModal(self.guild_id, str(self.user.id), self.selected_list))
-        btn_edit.callback = edit_cb
-        self.add_item(btn_edit)
-
-        btn_delete = discord.ui.Button(label="🗑️ Delete Selected", style=discord.ButtonStyle.danger, row=1, disabled=self.selected_list is None)
-        async def delete_cb(interaction: discord.Interaction):
-            if self.selected_list.is_default:
-                return await interaction.response.send_message("❌ The default Movie Night list cannot be deleted.", ephemeral=True)
-            await DatabaseController.delete_movie_list(self.selected_list.id)
-            self.selected_list = None
-            await self.fetch_data()
-            await self.build_ui()
-            await interaction.response.edit_message(content="✅ List deleted.", embed=self.generate_embed(), view=self)
-        btn_delete.callback = delete_cb
-        self.add_item(btn_delete)
-
-
-class MovieSearchSelectionView(discord.ui.View):
-    def __init__(self, list_id: int, movies: list, custom_title: str, watch_date: str, host_info: str):
-        super().__init__(timeout=120)
-        self.list_id = list_id
-        self.movies = movies
-        self.custom_title = custom_title
-        self.watch_date = watch_date
-        self.host_info = host_info
-
-        options =[]
-        for m in movies[:25]:
-            year = f" ({m.release_date[:4]})" if m.release_date else ""
-            options.append(discord.SelectOption(label=f"{m.title}{year}"[:100], description=(m.overview or "")[:50], value=str(m.id)))
+    def generate_embed(self) -> discord.Embed:
+        if not self.items:
+            return discord.Embed(title=f"Dashboard: {self.list_obj.name}", description="This list is currently empty. Add items!", color=discord.Color.red())
+            
+        list_item, movie = self.items[self.current_page]
+        title = movie.title if movie else list_item.custom_title
         
-        options.append(discord.SelectOption(label="Use Custom Title Only (No Metadata)", value="manual_fallback", emoji="📝"))
-
-        sel = discord.ui.Select(placeholder="Select the correct movie...", options=options)
+        embed = discord.Embed(
+            title=f"[{self.current_page + 1}/{len(self.items)}] {title}",
+            color=discord.Color.blue()
+        )
         
-        async def sel_cb(interaction: discord.Interaction):
-            val = interaction.data['values'][0]
-            if val == "manual_fallback":
-                await DatabaseController.add_movie_to_list(self.list_id, None, self.custom_title, self.watch_date, self.host_info)
-                await interaction.response.edit_message(content=f"✅ Added **{self.custom_title}** manually without metadata.", view=None)
-            else:
-                movie_id = int(val)
-                selected_m = next((m for m in self.movies if m.id == movie_id), None)
-                await DatabaseController.add_movie_to_list(self.list_id, movie_id, None, self.watch_date, self.host_info)
-                await interaction.response.edit_message(content=f"✅ Successfully added **{selected_m.title if selected_m else 'Movie'}** to the list!", view=None)
-                
-        sel.callback = sel_cb
-        self.add_item(sel)
-
-
-class MovieAddModal(discord.ui.Modal, title="Add Movie to List"):
-    movie_title = discord.ui.TextInput(label="Movie Title to Search", required=True)
-    watch_date = discord.ui.TextInput(label="Watch Date / Schedule (Optional)", required=False, placeholder="e.g. Friday 8PM EST")
-    
-    # Renamed the label to imply it accepts plain names or raw pings alike.
-    host_name = discord.ui.TextInput(label="Host Name or @User (Optional)", required=False, placeholder="e.g. Alice or @Alice")
-
-    def __init__(self, list_id: int):
-        super().__init__()
-        self.list_id = list_id
-
-    async def on_submit(self, interaction: discord.Interaction):
-        await interaction.response.defer(ephemeral=True)
-        query = self.movie_title.value.strip()
-        w_date = self.watch_date.value.strip() if self.watch_date.value.strip() else None
-        h_info = self.host_name.value.strip() if self.host_name.value.strip() else None
-
-        results = await MoviesDBController.search_and_cache(query, limit=10)
+        if list_item.film_type is None:
+            pass
+        elif list_item.film_type and list_item.film_type.lower() == "series":
+            season = f"Season {list_item.season_number}" if list_item.season_number else "Unknown Season"
+            eps = f"Episodes: {list_item.episodes_list}" if list_item.episodes_list else "All Episodes"
+            embed.add_field(name="📺 Series Details", value=f"{season}\n{eps}", inline=False)
+            
+        embed.add_field(name="📅 Watch Date", value=list_item.watch_date or "Not set", inline=True)
+        embed.add_field(name="🎤 Host", value=list_item.host_id or "Not set", inline=True)
         
-        if not results:
-            await DatabaseController.add_movie_to_list(self.list_id, None, query, w_date, h_info)
-            await interaction.followup.send(f"⚠️ No TMDB results found. Added **{query}** manually as a text entry.", ephemeral=True)
-        else:
-            view = MovieSearchSelectionView(self.list_id, results, query, w_date, h_info)
-            await interaction.followup.send(f"🔍 Found {len(results)} matches for **{query}**. Please select the correct one:", view=view, ephemeral=True)
+        release_val = list_item.custom_release_date or (movie.release_date[:4] if movie and movie.release_date else "Unknown")
+        embed.add_field(name="🎞️ Release Year", value=release_val, inline=True)
+        
+        if movie and movie.poster_path:
+            embed.set_thumbnail(url=f"https://image.tmdb.org/t/p/w200{movie.poster_path}")
+            
+        return embed
 
+    async def go_first(self, interaction):
+        self.current_page = 0
+        self.update_components()
+        await interaction.response.edit_message(embed=self.generate_embed(), view=self)
+
+    async def go_prev(self, interaction):
+        self.current_page -= 1
+        self.update_components()
+        await interaction.response.edit_message(embed=self.generate_embed(), view=self)
+        
+    async def go_next(self, interaction):
+        self.current_page += 1
+        self.update_components()
+        await interaction.response.edit_message(embed=self.generate_embed(), view=self)
+        
+    async def go_last(self, interaction):
+        self.current_page = len(self.items) - 1
+        self.update_components()
+        await interaction.response.edit_message(embed=self.generate_embed(), view=self)
+
+    async def add_film(self, interaction):
+        modal = AddFilmModal(self.list_obj.id, self)
+        await interaction.response.send_modal(modal)
+
+    async def action_callback(self, interaction: discord.Interaction):
+        val = interaction.data['values'][0]
+        list_item, movie = self.items[self.current_page]
+        
+        if val == "edit_info":
+            await interaction.response.send_modal(EditInfoModal(list_item, self))
+        elif val == "edit_series":
+            await interaction.response.send_modal(EditSeriesModal(list_item, self))
+        elif val == "move":
+            await interaction.response.send_modal(MoveItemModal(list_item, len(self.items), self))
+        elif val == "remove":
+            await DatabaseController.remove_movie_list_item(list_item.id)
+            await self.reload_items()
+            await interaction.response.edit_message(embed=self.generate_embed(), view=self)
+
+# ==========================================
+#             COGS
+# ==========================================
 
 class FilmCog(commands.Cog, name="film"):
     def __init__(self, bot):
@@ -324,10 +442,9 @@ class FilmCog(commands.Cog, name="film"):
         for guild in self.bot.guilds:
             await DatabaseController.ensure_default_movie_list(str(guild.id), str(self.bot.user.id))
 
-    # Declare the top-level groups
     film_group = app_commands.Group(name="film", description="Film search and tools")
     movies_group = app_commands.Group(name="movies", description="Manage and interact with movie lists")
-    list_group = app_commands.Group(name="list", description="View and delete lists", parent=movies_group)
+    list_group = app_commands.Group(name="list", description="Manage the lists themselves", parent=movies_group)
 
     async def cog_app_command_error(self, interaction: discord.Interaction, error: app_commands.AppCommandError):
         logger.error(f"Error caught in FilmCog by {interaction.user}: {error}")
@@ -344,9 +461,9 @@ class FilmCog(commands.Cog, name="film"):
     # --- AUTOCOMPLETES ---
     async def movie_search_autocomplete(self, interaction: discord.Interaction, current: str) -> list[app_commands.Choice[str]]:
         if not current:
-            return []
+            return[]
         movies = await DatabaseController.search_movies(current, limit=25)
-        choices = []
+        choices =[]
         for m in movies:
             year = f" ({m.release_date[:4]})" if m.release_date else ""
             display_name = f"{m.title}{year}"[:100]
@@ -355,7 +472,7 @@ class FilmCog(commands.Cog, name="film"):
 
     async def lists_autocomplete(self, interaction: discord.Interaction, current: str) -> list[app_commands.Choice[str]]:
         if not interaction.guild_id:
-            return []
+            return[]
         
         await DatabaseController.ensure_default_movie_list(str(interaction.guild_id), str(self.bot.user.id))
         all_lists = await DatabaseController.get_movie_lists(str(interaction.guild_id))
@@ -386,41 +503,30 @@ class FilmCog(commands.Cog, name="film"):
         view = MoviePaginator(results)
         await interaction.followup.send(embed=view.generate_embed(), view=view)
 
-    # --- MOVIES COMMANDS ---
-    @movies_group.command(name="manage", description="Open an interactive dashboard to create, edit, or delete your movie lists.")
-    async def movies_manage(self, interaction: discord.Interaction):
-        await interaction.response.defer(ephemeral=True)
-        await DatabaseController.ensure_default_movie_list(str(interaction.guild_id), str(self.bot.user.id))
-        
-        view = MovieListManageView(str(interaction.guild_id), interaction.user)
-        await view.fetch_data()
-        await view.build_ui()
-        await interaction.followup.send(embed=view.generate_embed(), view=view, ephemeral=True)
+    # --- MOVIES LIST COMMANDS ---
+    @list_group.command(name="new", description="Create a new movie list.")
+    async def list_new(self, interaction: discord.Interaction, name: str, description: str = None):
+        list_id = await DatabaseController.create_movie_list(str(interaction.guild_id), str(interaction.user.id), name, description)
+        if not list_id:
+            return await interaction.response.send_message(f"❌ A list named **{name}** already exists in this server.", ephemeral=True)
+        await interaction.response.send_message(f"✅ Created list **{name}**.", ephemeral=True)
 
-    @movies_group.command(name="add", description="Add a new movie to a list.")
+    @list_group.command(name="edit", description="Edit the name or description of an existing movie list.")
     @app_commands.autocomplete(list_name=lists_autocomplete)
-    async def movies_add(self, interaction: discord.Interaction, list_name: str):
+    async def list_edit(self, interaction: discord.Interaction, list_name: str, new_name: str = None, new_description: str = None):
         lst = await DatabaseController.get_movie_list_by_name(str(interaction.guild_id), list_name)
         if not lst:
             return await interaction.response.send_message("❌ List not found.", ephemeral=True)
-            
-        if not lst.is_default and lst.user_id != str(interaction.user.id) and not interaction.user.guild_permissions.manage_messages:
-            return await interaction.response.send_message("❌ You do not have permission to add movies to this list.", ephemeral=True)
+        
+        if lst.is_default and not interaction.user.guild_permissions.manage_guild:
+            return await interaction.response.send_message("❌ Only server admins can edit the default Movie Night list.", ephemeral=True)
+        if lst.user_id != str(interaction.user.id) and not interaction.user.guild_permissions.manage_messages:
+            return await interaction.response.send_message("❌ You do not own this list.", ephemeral=True)
 
-        await interaction.response.send_modal(MovieAddModal(lst.id))
-
-    # --- MOVIES LIST COMMANDS ---
-    @list_group.command(name="show", description="Display all movies currently queued up on a specific list.")
-    @app_commands.autocomplete(list_name=lists_autocomplete)
-    async def list_show(self, interaction: discord.Interaction, list_name: str):
-        await interaction.response.defer()
-        lst = await DatabaseController.get_movie_list_by_name(str(interaction.guild_id), list_name)
-        if not lst:
-            return await interaction.followup.send("❌ List not found.")
-
-        items = await DatabaseController.get_movie_list_items(lst.id)
-        view = ListShowPaginator(lst, items)
-        await interaction.followup.send(embed=view.generate_embed(), view=view)
+        final_name = new_name if new_name else lst.name
+        final_desc = new_description if new_description else lst.description
+        await DatabaseController.edit_movie_list(lst.id, final_name, final_desc)
+        await interaction.response.send_message(f"✅ List updated successfully.", ephemeral=True)
 
     @list_group.command(name="delete", description="Delete a movie list entirely.")
     @app_commands.autocomplete(list_name=lists_autocomplete)
@@ -437,6 +543,59 @@ class FilmCog(commands.Cog, name="film"):
 
         await DatabaseController.delete_movie_list(lst.id)
         await interaction.response.send_message(f"🗑️ Successfully deleted the list **{list_name}**.", ephemeral=True)
+
+    @list_group.command(name="manage", description="Open an interactive dashboard to manage an individual movie list's items.")
+    @app_commands.autocomplete(list_name=lists_autocomplete)
+    async def list_manage(self, interaction: discord.Interaction, list_name: str):
+        lst = await DatabaseController.get_movie_list_by_name(str(interaction.guild_id), list_name)
+        if not lst:
+            return await interaction.response.send_message("❌ List not found.", ephemeral=True)
+            
+        if not lst.is_default and lst.user_id != str(interaction.user.id) and not interaction.user.guild_permissions.manage_messages:
+            return await interaction.response.send_message("❌ You do not have permission to manage items on this list.", ephemeral=True)
+
+        items = await DatabaseController.get_movie_list_items(lst.id)
+        view = ItemManagePaginator(lst, items)
+        await interaction.response.send_message(embed=view.generate_embed(), view=view, ephemeral=True)
+
+    @list_group.command(name="show", description="Display a read-only paginated overview of all items on a list.")
+    @app_commands.autocomplete(list_name=lists_autocomplete)
+    async def list_show(self, interaction: discord.Interaction, list_name: str):
+        await interaction.response.defer()
+        lst = await DatabaseController.get_movie_list_by_name(str(interaction.guild_id), list_name)
+        if not lst:
+            return await interaction.followup.send("❌ List not found.")
+
+        items = await DatabaseController.get_movie_list_items(lst.id)
+        view = ListShowPaginator(lst, items)
+        await interaction.followup.send(embed=view.generate_embed(), view=view)
+
+    @list_group.command(name="export", description="Export a movie list to CSV.")
+    @app_commands.autocomplete(list_name=lists_autocomplete)
+    async def list_export(self, interaction: discord.Interaction, list_name: str):
+        lst = await DatabaseController.get_movie_list_by_name(str(interaction.guild_id), list_name)
+        if not lst:
+            return await interaction.response.send_message("❌ List not found.", ephemeral=True)
+            
+        items = await DatabaseController.get_movie_list_items(lst.id)
+        
+        output = io.StringIO()
+        writer = csv.writer(output)
+        writer.writerow(["Order", "Title", "TMDB_ID", "Film_Type", "Season", "Episodes", "Watch_Date", "Host", "Release_Date"])
+        
+        for list_item, movie in items:
+            title = movie.title if movie else list_item.custom_title
+            tmdb_id = movie.id if movie else ""
+            rel_date = list_item.custom_release_date or (movie.release_date if movie else "")
+            writer.writerow([
+                list_item.order_index, title, tmdb_id, list_item.film_type or "", 
+                list_item.season_number or "", list_item.episodes_list or "", 
+                list_item.watch_date or "", list_item.host_id or "", rel_date
+            ])
+            
+        output.seek(0)
+        file = discord.File(fp=io.BytesIO(output.getvalue().encode('utf-8')), filename=f"{lst.name.replace(' ', '_')}_export.csv")
+        await interaction.response.send_message(f"✅ Here is the export for **{lst.name}**:", file=file, ephemeral=True)
 
     @movies_group.command(name="admin_repopulate", description="Force re-populate the default Movie Night list from the text file.")
     @app_commands.checks.has_permissions(manage_guild=True)
