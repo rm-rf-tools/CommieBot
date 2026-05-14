@@ -418,19 +418,23 @@ class DatabaseController:
 
     # --- Aid methods ---
     @staticmethod
-    async def create_aid(guild_id: str, channel_id: str, user_id: str, name: str, amount: float, description: str):
+    async def create_aid(guild_id: str, channel_id: str, user_id: str, name: str, amount: float, description: str, interval: int = 1):
         now = int(time.time())
-        next_reminder = now + 86400
+        # Set next reminder based on interval (0 = no reminder)
+        next_reminder = now + (interval * 86400) if interval > 0 else None
+        
         obj = Aid(
             guild_id=guild_id, channel_id=channel_id, user_id=user_id, 
             name=name, amount_requested=amount, reason=description, 
-            created_at=now, next_reminder_at=next_reminder
+            created_at=now, last_reminded_at=now, next_reminder_at=next_reminder,
+            reminder_interval=interval
         )
         async with AsyncSession(engine) as session:
             session.add(obj)
             await session.commit()
             await session.refresh(obj)
             return obj.id
+
 
     @staticmethod
     async def get_active_aid(aid_id: int, guild_id: str):
@@ -499,10 +503,12 @@ class DatabaseController:
             now = int(time.time())
             stmt = select(Aid).where(
                 Aid.status == 'active',
+                Aid.reminder_interval > 0,
                 Aid.next_reminder_at <= now,
                 Aid.channel_id != None
             )
             result = await session.execute(stmt)
+            # Returning tuple with current data format
             return [(obj.id, obj.guild_id, obj.channel_id, obj.user_id, obj.amount_requested, obj.amount_received, obj.reason) for obj in result.scalars().all()]
 
     @staticmethod
@@ -510,7 +516,12 @@ class DatabaseController:
         async with AsyncSession(engine) as session:
             obj = await session.get(Aid, aid_id)
             if obj:
-                obj.next_reminder_at = int(time.time()) + 172800
+                now = int(time.time())
+                obj.last_reminded_at = now
+                if obj.reminder_interval > 0:
+                    obj.next_reminder_at = now + (obj.reminder_interval * 86400)
+                else:
+                    obj.next_reminder_at = None
                 await session.commit()
 
     @staticmethod
@@ -593,7 +604,7 @@ class DatabaseController:
 
     
     @staticmethod
-    async def edit_aid(guild_id: str, old_name: str, new_name: str = None, amount: float = None, description: str = None):
+    async def edit_aid(guild_id: str, old_name: str, new_name: str = None, amount: float = None, description: str = None, interval: int = None):
         async with AsyncSession(engine) as session:
             stmt = select(Aid).where(
                 Aid.guild_id == guild_id, 
@@ -602,14 +613,18 @@ class DatabaseController:
             ).order_by(Aid.id.desc())
             result = await session.execute(stmt)
             obj = result.scalars().first()
-            if not obj:
-                stmt = select(Aid).where(Aid.guild_id == guild_id, func.lower(Aid.name) == old_name.lower()).order_by(Aid.id.desc())
-                result = await session.execute(stmt)
-                obj = result.scalars().first()
+            
             if obj:
                 if new_name is not None: obj.name = new_name
                 if amount is not None: obj.amount_requested = amount
                 if description is not None: obj.reason = description
+                if interval is not None:
+                    obj.reminder_interval = interval
+                    # If we change interval, recalculate next_reminder_at based on last_reminded_at
+                    if interval > 0:
+                        obj.next_reminder_at = (obj.last_reminded_at or obj.created_at) + (interval * 86400)
+                    else:
+                        obj.next_reminder_at = None
                 await session.commit()
                 return True
             return False
@@ -653,7 +668,8 @@ class DatabaseController:
                 Aid.status == 'active'
             ).order_by(Aid.id.desc())
             result = await session.execute(stmt)
-            return[(obj.id, obj.name, obj.amount_requested, obj.amount_received, obj.reason) for obj in result.scalars().all()]
+            
+            return[(obj.id, obj.name, obj.amount_requested, obj.amount_received, obj.reason, obj.reminder_interval) for obj in result.scalars().all()]
     
     # CRP 
     @staticmethod

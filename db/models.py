@@ -51,7 +51,9 @@ class Aid(SQLModel, table=True):
     reason: Optional[str] = None
     status: str = Field(default="active")
     created_at: Optional[int] = None
+    last_reminded_at: Optional[int] = None
     next_reminder_at: Optional[int] = None
+    reminder_interval: int = Field(default=1) # Days. 0 = Disabled.
 
 class Committee(SQLModel, table=True):
     __tablename__ = "committees"
