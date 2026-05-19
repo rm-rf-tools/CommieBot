@@ -17,7 +17,7 @@ class TheoryResource(SQLModel, table=True):
     file_name: Optional[str] = None
     description: Optional[str] = None
     tags: Optional[str] = None
-
+    is_dead: bool = Field(default=False) 
 
 class ServerConfig(SQLModel, table=True):
     __tablename__ = "server_configs"

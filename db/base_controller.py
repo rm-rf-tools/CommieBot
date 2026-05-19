@@ -1710,7 +1710,30 @@ class DatabaseController:
             if count > 0:
                 await session.commit()
             return count
+            
     # Theory Resources
+    @staticmethod
+    async def set_theory_resource_dead_status(resource_id: int, is_dead: bool):
+        async with AsyncSession(engine) as session:
+            resource = await session.get(TheoryResource, resource_id)
+            if resource:
+                resource.is_dead = is_dead
+                await session.commit()
+
+    @staticmethod
+    async def get_dead_theory_resources():
+        async with AsyncSession(engine) as session:
+            stmt = select(TheoryResource).where(TheoryResource.is_dead == True)
+            result = await session.execute(stmt)
+            return result.scalars().all()
+
+    @staticmethod
+    async def get_all_resources_with_urls():
+        async with AsyncSession(engine) as session:
+            stmt = select(TheoryResource).where(TheoryResource.url != None)
+            result = await session.execute(stmt)
+            return result.scalars().all()
+
     @staticmethod
     async def add_theory_resource(title: str, resource_type: str, url: str = None, file_data: bytes = None, file_name: str = None, description: str = None, tags: str = None):
         async with AsyncSession(engine) as session:
