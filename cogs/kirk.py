@@ -1,0 +1,318 @@
+"""
+filename: cogs/kirk.py
+description: Deepfake integration using FaceFusion for headless face swapping (kirkifying) media.
+Views:
+    - KirkListPaginator: Handles pagination for displaying available source faces with First/Prev/Next/Last navigation.
+Commands:
+    - /kirkify media <source_face> <target_media>: Run FaceFusion headless to face swap a source face onto the target media. (User)
+    - /kirkify roster add <name> <photo>: Add a new source face to the roster. (Admin: Manage Guild)
+    - /kirkify roster delete <name>: Delete a source face from the roster. (Admin: Manage Guild)
+    - /kirkify roster view: View all available source faces in a paginated list. (User)
+    - /kirkify roster export: Export a CSV list of all available source faces. (Admin: Manage Guild)
+"""
+
+import discord
+from discord import app_commands
+from discord.ext import commands
+import os
+import io
+import csv
+import uuid
+import asyncio
+
+# Absolute paths internal to the Docker container
+BASE_DIR = os.path.abspath("./data/kirk")
+KIRK_IMAGES_DIR = os.path.join(BASE_DIR, "images")
+KIRK_TEMP_DIR = os.path.join(BASE_DIR, "temp")
+
+os.makedirs(KIRK_IMAGES_DIR, exist_ok=True)
+os.makedirs(KIRK_TEMP_DIR, exist_ok=True)
+
+async def get_video_duration(file_path: str) -> float:
+    cmd = [
+        "ffprobe", "-v", "error", "-show_entries",
+        "format=duration", "-of",
+        "default=noprint_wrappers=1:nokey=1", file_path
+    ]
+    try:
+        proc = await asyncio.create_subprocess_exec(
+            *cmd, stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.PIPE
+        )
+        stdout, _ = await proc.communicate()
+        if proc.returncode == 0:
+            return float(stdout.decode('utf-8').strip())
+    except Exception:
+        pass
+    return 0.0
+
+async def shrink_video_ffmpeg(input_path: str, output_path: str, target_mb: float = 24.0) -> tuple[bool, str]:
+    duration = await get_video_duration(input_path)
+    
+    if duration <= 0:
+        cmd = [
+            "ffmpeg", "-y", "-i", input_path,
+            "-c:v", "libx264", "-crf", "28", "-preset", "fast",
+            "-c:a", "aac", "-b:a", "128k", "-f", "mp4", output_path
+        ]
+    else:
+        total_bitrate_kbps = (target_mb * 8192) / duration
+        audio_bitrate = 128
+        video_bitrate = max(100, int(total_bitrate_kbps - audio_bitrate))
+        
+        cmd = [
+            "ffmpeg", "-y", "-i", input_path,
+            "-c:v", "libx264", "-b:v", f"{video_bitrate}k",
+            "-maxrate", f"{int(video_bitrate * 1.5)}k", "-bufsize", f"{video_bitrate * 2}k",
+            "-preset", "fast",
+            "-c:a", "aac", "-b:a", f"{audio_bitrate}k",
+            "-f", "mp4", output_path
+        ]
+        
+    try:
+        proc = await asyncio.create_subprocess_exec(
+            *cmd, stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.PIPE
+        )
+        _, stderr = await proc.communicate()
+        
+        if proc.returncode != 0:
+            return False, stderr.decode('utf-8', errors='replace')
+        return True, ""
+    except Exception as e:
+        return False, str(e)
+
+class KirkListPaginator(discord.ui.View):
+    def __init__(self, items: list):
+        super().__init__(timeout=300)
+        self.items = items
+        self.current_page = 0
+        self.per_page = 15
+        self.update_buttons()
+
+    def update_buttons(self):
+        max_pages = max(0, (len(self.items) - 1) // self.per_page)
+        for child in self.children:
+            if child.custom_id in ("first_btn", "prev_btn"):
+                child.disabled = self.current_page == 0
+            elif child.custom_id in ("next_btn", "last_btn"):
+                child.disabled = self.current_page >= max_pages
+
+    def generate_embed(self) -> discord.Embed:
+        embed = discord.Embed(title="🎭 Available Source Faces", color=discord.Color.purple())
+        start = self.current_page * self.per_page
+        end = start + self.per_page
+        page_items = self.items[start:end]
+        
+        if not page_items:
+            embed.description = "No source faces uploaded yet."
+            return embed
+
+        desc = ""
+        for item in page_items:
+            desc += f"• **{item}**\n"
+        
+        embed.description = desc
+        max_pages = max(1, (len(self.items) + self.per_page - 1) // self.per_page)
+        embed.set_footer(text=f"Page {self.current_page + 1} of {max_pages} | Total: {len(self.items)}")
+        return embed
+
+    @discord.ui.button(label="⏮ First", style=discord.ButtonStyle.secondary, custom_id="first_btn")
+    async def first_btn(self, interaction: discord.Interaction, button: discord.ui.Button):
+        self.current_page = 0
+        self.update_buttons()
+        await interaction.response.edit_message(embed=self.generate_embed(), view=self)
+
+    @discord.ui.button(label="◀ Prev", style=discord.ButtonStyle.secondary, custom_id="prev_btn")
+    async def prev_btn(self, interaction: discord.Interaction, button: discord.ui.Button):
+        self.current_page -= 1
+        self.update_buttons()
+        await interaction.response.edit_message(embed=self.generate_embed(), view=self)
+
+    @discord.ui.button(label="Next ▶", style=discord.ButtonStyle.primary, custom_id="next_btn")
+    async def next_btn(self, interaction: discord.Interaction, button: discord.ui.Button):
+        self.current_page += 1
+        self.update_buttons()
+        await interaction.response.edit_message(embed=self.generate_embed(), view=self)
+
+    @discord.ui.button(label="Last ⏭", style=discord.ButtonStyle.primary, custom_id="last_btn")
+    async def last_btn(self, interaction: discord.Interaction, button: discord.ui.Button):
+        self.current_page = max(0, (len(self.items) - 1) // self.per_page)
+        self.update_buttons()
+        await interaction.response.edit_message(embed=self.generate_embed(), view=self)
+
+class KirkifyCog(commands.GroupCog, name="kirkify"):
+    def __init__(self, bot):
+        self.bot = bot
+
+    roster_group = app_commands.Group(name="roster", description="Manage the source face roster")
+
+    async def cog_app_command_error(self, interaction: discord.Interaction, error: app_commands.AppCommandError):
+        if interaction.response.is_done():
+            send = interaction.followup.send
+        else:
+            send = interaction.response.send_message
+            
+        if isinstance(error, app_commands.MissingPermissions):
+            await send("❌ **Permission Denied:** You need specific permissions to run this command.", ephemeral=True)
+        else:
+            await send(f"❌ An unexpected error occurred: {error}", ephemeral=True)
+
+    async def face_autocomplete(self, interaction: discord.Interaction, current: str) -> list[app_commands.Choice[str]]:
+        if not os.path.exists(KIRK_IMAGES_DIR):
+            return []
+        files = os.listdir(KIRK_IMAGES_DIR)
+        names = [f[:-4] for f in files if f.endswith(".png")]
+        return [
+            app_commands.Choice(name=n, value=n) 
+            for n in names if current.lower() in n.lower()
+        ][:25]
+
+    @app_commands.command(name="media", description="Face swap a source face onto the target media.")
+    @app_commands.describe(source_face="The name of the source face to apply", target_media="The image or video to alter")
+    @app_commands.autocomplete(source_face=face_autocomplete)
+    async def kirkify_media(self, interaction: discord.Interaction, source_face: str, target_media: discord.Attachment):
+        source_path = os.path.join(KIRK_IMAGES_DIR, f"{source_face}.png")
+        if not os.path.exists(source_path):
+            return await interaction.response.send_message(f"❌ Source face **{source_face}** not found.", ephemeral=True)
+
+        await interaction.response.defer()
+
+        status_message = await interaction.followup.send("⏳ **Processing media...**\n*(Note: The very first time this runs on your server, it must download a 500MB AI model. Please be patient!)*", wait=True)
+
+        req_id = uuid.uuid4().hex[:8]
+        ext = os.path.splitext(target_media.filename)[1].lower()
+        target_path = os.path.join(KIRK_TEMP_DIR, f"{req_id}_target{ext}")
+        output_path = os.path.join(KIRK_TEMP_DIR, f"{req_id}_output{ext}")
+        shrunk_path = os.path.join(KIRK_TEMP_DIR, f"{req_id}_shrunk.mp4")
+
+        try:
+            await target_media.save(target_path)
+
+            facefusion_script = "/app/facefusion/facefusion.py"
+            if not os.path.exists(facefusion_script):
+                return await status_message.edit(content="❌ Internal Path Error: The FaceFusion core script was not found in the container at `/app/facefusion/facefusion.py`.")
+
+            cmd = [
+                "python", facefusion_script, "headless-run",
+                "--execution-providers", "cuda",
+                "--processors", "face_swapper",
+                "--face-swapper-model", "inswapper_128",
+                "-s", source_path,
+                "-t", target_path,
+                "-o", output_path
+            ]
+
+            # VITAL: Set cwd to /app/facefusion so it can locate its modules correctly
+            process = await asyncio.create_subprocess_exec(
+                *cmd,
+                cwd="/app/facefusion",
+                stdout=asyncio.subprocess.PIPE,
+                stderr=asyncio.subprocess.PIPE
+            )
+            stdout, stderr = await process.communicate()
+
+            if process.returncode != 0:
+                err_text = stderr.decode('utf-8', errors='replace')[-1800:]
+                return await status_message.edit(content=f"❌ FaceFusion encountered an error:\n```\n{err_text}\n```")
+
+            if not os.path.exists(output_path):
+                return await status_message.edit(content="❌ Output file was not generated by FaceFusion.")
+
+            final_file = output_path
+            is_video = ext in ('.mp4', '.webm', '.mov', '.avi', '.mkv')
+            
+            if is_video and (os.path.getsize(output_path) / (1024 * 1024)) > 24.0:
+                await status_message.edit(content="⏳ Resulting video is large. Compressing to fit Discord upload limits...")
+                shrink_success, shrink_err = await shrink_video_ffmpeg(output_path, shrunk_path, target_mb=24.0)
+                
+                if shrink_success and os.path.exists(shrunk_path):
+                    final_file = shrunk_path
+                else:
+                    return await status_message.edit(content=f"❌ Video compression failed: {shrink_err}")
+
+            if (os.path.getsize(final_file) / (1024 * 1024)) > 25.0:
+                return await status_message.edit(content="❌ The resulting media is still over 25MB and cannot be uploaded to Discord.")
+
+            file = discord.File(final_file, filename=f"kirkified_{source_face}{ext}")
+            
+            await interaction.followup.send(content=f"✅ Successfully kirkified with **{source_face}**!", file=file)
+            await status_message.delete()
+
+        except Exception as e:
+            await status_message.edit(content=f"❌ An unexpected error occurred: `{str(e)}`")
+        finally:
+            for p in [target_path, output_path, shrunk_path]:
+                if p and os.path.exists(p):
+                    try:
+                        os.remove(p)
+                    except:
+                        pass
+
+    @roster_group.command(name="add", description="Add a new source face to the roster.")
+    @app_commands.describe(name="Name to save the face under", photo="Clear, front-facing image of the face")
+    @app_commands.checks.has_permissions(manage_guild=True)
+    async def roster_add(self, interaction: discord.Interaction, name: str, photo: discord.Attachment):
+        if not photo.content_type or not photo.content_type.startswith('image/'):
+            return await interaction.response.send_message("❌ Please upload a valid image file.", ephemeral=True)
+
+        await interaction.response.defer(ephemeral=True)
+        try:
+            safe_name = name.strip().replace(" ", "_").lower()
+            save_path = os.path.join(KIRK_IMAGES_DIR, f"{safe_name}.png")
+            await photo.save(save_path)
+            await interaction.followup.send(f"✅ Successfully saved source face **{safe_name}**.")
+        except Exception as e:
+            await interaction.followup.send(f"❌ Failed to save image: {e}")
+
+    @roster_group.command(name="delete", description="Delete a source face from the roster.")
+    @app_commands.describe(name="The face to delete")
+    @app_commands.autocomplete(name=face_autocomplete)
+    @app_commands.checks.has_permissions(manage_guild=True)
+    async def roster_delete(self, interaction: discord.Interaction, name: str):
+        safe_name = name.strip().replace(" ", "_").lower()
+        file_path = os.path.join(KIRK_IMAGES_DIR, f"{safe_name}.png")
+
+        if not os.path.exists(file_path):
+            return await interaction.response.send_message(f"❌ Face **{name}** not found.", ephemeral=True)
+
+        try:
+            os.remove(file_path)
+            await interaction.response.send_message(f"🗑️ Deleted source face **{name}**.", ephemeral=True)
+        except Exception as e:
+            await interaction.response.send_message(f"❌ Failed to delete image: {e}", ephemeral=True)
+
+    @roster_group.command(name="view", description="View all available source faces.")
+    async def roster_view(self, interaction: discord.Interaction):
+        await interaction.response.defer()
+        files = os.listdir(KIRK_IMAGES_DIR)
+        names = sorted([f[:-4] for f in files if f.endswith(".png")])
+        
+        if not names:
+            return await interaction.followup.send("❌ No source faces have been uploaded yet.")
+
+        view = KirkListPaginator(names)
+        await interaction.followup.send(embed=view.generate_embed(), view=view)
+
+    @roster_group.command(name="export", description="Export a CSV list of all available source faces.")
+    @app_commands.checks.has_permissions(manage_guild=True)
+    async def roster_export(self, interaction: discord.Interaction):
+        await interaction.response.defer(ephemeral=True)
+        
+        files = os.listdir(KIRK_IMAGES_DIR)
+        names = sorted([f[:-4] for f in files if f.endswith(".png")])
+        
+        if not names:
+            return await interaction.followup.send("No faces found to export.")
+
+        output = io.StringIO()
+        writer = csv.writer(output)
+        writer.writerow(["Name", "File Path"])
+        
+        for n in names:
+            writer.writerow([n, f"{n}.png"])
+
+        output.seek(0)
+        file = discord.File(fp=io.BytesIO(output.getvalue().encode('utf-8')), filename="kirk_faces_export.csv")
+        await interaction.followup.send("✅ Export generated.", file=file)
+
+async def setup(bot):
+    await bot.add_cog(KirkifyCog(bot))

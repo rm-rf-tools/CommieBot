@@ -266,17 +266,18 @@ class MochaSubstackLayout:
             "DejaVuSerif.ttf"
         ]
         
+        # INCREASED FONT SIZE to 56
         quote_font = None
         for f_path in font_paths_to_try:
             try:
-                quote_font = ImageFont.truetype(f_path, size=52)
+                quote_font = ImageFont.truetype(f_path, size=56)
                 break
             except IOError:
                 continue
 
         if not quote_font:
             try:
-                quote_font = ImageFont.truetype(os.path.join(FONT_DIR, "NugoSansLight-9YzoK.ttf"), size=52)
+                quote_font = ImageFont.truetype(os.path.join(FONT_DIR, "NugoSansLight-9YzoK.ttf"), size=56)
             except IOError:
                 quote_font = ImageFont.load_default()
 
@@ -301,17 +302,18 @@ class MochaSubstackLayout:
 
         wrapped_text = "\n".join(lines)
 
-        bbox = draw.multiline_textbbox((0, 0), wrapped_text, font=quote_font, spacing=12)
+        # Bumped spacing slightly to match the larger font
+        bbox = draw.multiline_textbbox((0, 0), wrapped_text, font=quote_font, spacing=14)
         text_height = bbox[3] - bbox[1]
 
         x_pos = 48
-        y_pos = 695 - text_height
+        # BOTTOM ANCHOR CHANGED: Moved up from 695 to 640 so it bottoms out higher
+        # Since we subtract text_height, the text will always grow UPWARDS from this spot
+        y_pos = 640 - text_height
 
-        draw.multiline_text((x_pos, y_pos), wrapped_text, font=quote_font, fill=(255, 255, 255, 255), align='left', spacing=12)
+        draw.multiline_text((x_pos, y_pos), wrapped_text, font=quote_font, fill=(255, 255, 255, 255), align='left', spacing=14)
 
         return export_image(img)
-
-
 
 class QuoteMaker(commands.GroupCog, name="quote"):
     def __init__(self, bot):

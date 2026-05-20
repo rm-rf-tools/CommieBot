@@ -14,3 +14,6 @@ yt-dlp
 gallery-dl
 instaloader
 tmdbsimple
+facefusion
+onnxruntime-gpu
+insightface
