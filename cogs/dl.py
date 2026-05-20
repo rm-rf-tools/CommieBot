@@ -1,6 +1,6 @@
 """
-filename: dl.py
-description: Download videos and photos from various platforms using yt-dlp and gallery-dl. Features host-based fallbacks (like instaloader for Instagram) and automatically shrinks videos over 10MB using a custom shrinker binary.
+filename: cogs/dl.py
+description: Download videos and photos from various platforms using yt-dlp and gallery-dl. Features host-based fallbacks (like instaloader for Instagram) and automatically shrinks videos over 10MB using an FFmpeg subprocess implementation to safely fit within Discord's upload limits.
 Views:
     - None
 Commands:
@@ -15,27 +15,74 @@ from discord.ext import commands
 import asyncio
 import os
 import shutil
-import glob
 import uuid
 import yt_dlp
 import re
 from urllib.parse import urlparse
 
 TEMP_DIR = "./data/dl_temp"
-VIDEOS_DIR = "./videos"
 COOKIES_FILE = "./data/cookies.txt"
-SHRINKER_PATH = "./static/shrinker"
 
-# Ensure directories exist
 os.makedirs(TEMP_DIR, exist_ok=True)
-os.makedirs(VIDEOS_DIR, exist_ok=True)
 
 def get_hostname(url: str) -> str:
-    """Helper to extract the base domain name for fallback routing."""
     try:
         return urlparse(url).hostname.replace('www.', '')
-    except:
+    except Exception:
         return ""
+
+async def get_video_duration(file_path: str) -> float:
+    cmd = [
+        "ffprobe", "-v", "error", "-show_entries",
+        "format=duration", "-of",
+        "default=noprint_wrappers=1:nokey=1", file_path
+    ]
+    try:
+        proc = await asyncio.create_subprocess_exec(
+            *cmd, stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.PIPE
+        )
+        stdout, _ = await proc.communicate()
+        if proc.returncode == 0:
+            return float(stdout.decode('utf-8').strip())
+    except Exception:
+        pass
+    return 0.0
+
+async def shrink_video_ffmpeg(input_path: str, output_path: str, target_mb: float = 9.0) -> tuple[bool, str]:
+    duration = await get_video_duration(input_path)
+    
+    if duration <= 0:
+        cmd = [
+            "ffmpeg", "-y", "-i", input_path,
+            "-c:v", "libx264", "-crf", "28", "-preset", "fast",
+            "-c:a", "aac", "-b:a", "128k", "-f", "mp4", output_path
+        ]
+    else:
+        total_bitrate_kbps = (target_mb * 8192) / duration
+        audio_bitrate = 128
+        video_bitrate = max(100, int(total_bitrate_kbps - audio_bitrate))
+        
+        cmd = [
+            "ffmpeg", "-y", "-i", input_path,
+            "-c:v", "libx264", "-b:v", f"{video_bitrate}k",
+            "-maxrate", f"{int(video_bitrate * 1.5)}k", "-bufsize", f"{video_bitrate * 2}k",
+            "-preset", "fast",
+            "-c:a", "aac", "-b:a", f"{audio_bitrate}k",
+            "-f", "mp4", output_path
+        ]
+        
+    try:
+        proc = await asyncio.create_subprocess_exec(
+            *cmd, stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.PIPE
+        )
+        _, stderr = await proc.communicate()
+        
+        if proc.returncode != 0:
+            return False, stderr.decode('utf-8', errors='replace')
+        return True, ""
+    except Exception as e:
+        return False, str(e)
+
 
 class DLCog(commands.GroupCog, name="dl"):
     def __init__(self, bot):
@@ -56,16 +103,12 @@ class DLCog(commands.GroupCog, name="dl"):
             await send(f"❌ An unexpected error occurred: {error}", ephemeral=True)
 
     async def fallback_instaloader(self, url: str, dest_dir: str) -> tuple[bool, str]:
-        """Fallback specifically for fetching Instagram content via instaloader."""
         match = re.search(r"(?:instagram\.com|instagr\.am)/(?:p|reel|tv)/([^/?#&]+)", url)
         if not match:
             return False, "Could not extract shortcode for instaloader."
             
         shortcode = match.group(1)
-        
-        # NOTE: Instaloader does not natively take standard Netscape cookie.txt files in CLI easily
-        # So we run it unauthenticated as a pure fallback for public posts
-        cmd =["instaloader", "--quiet", "--dirname-pattern", dest_dir, "--", f"-{shortcode}"]
+        cmd = ["instaloader", "--quiet", "--dirname-pattern", dest_dir, "--", f"-{shortcode}"]
         
         try:
             process = await asyncio.create_subprocess_exec(
@@ -73,10 +116,10 @@ class DLCog(commands.GroupCog, name="dl"):
                 stdout=asyncio.subprocess.PIPE,
                 stderr=asyncio.subprocess.PIPE
             )
-            stdout, stderr = await process.communicate()
+            _, stderr = await process.communicate()
             if process.returncode == 0:
                 return True, ""
-            return False, stderr.decode('utf-8')[:500]
+            return False, stderr.decode('utf-8', errors='replace')
         except Exception as e:
             return False, str(e)
 
@@ -86,15 +129,15 @@ class DLCog(commands.GroupCog, name="dl"):
     async def dl_video(self, interaction: discord.Interaction, url: str):
         await interaction.response.defer()
         
-        req_id = uuid.uuid4().hex[:8]
+        req_id = f"temp_{uuid.uuid4().hex[:12]}"
         req_dir = os.path.join(TEMP_DIR, req_id)
         os.makedirs(req_dir, exist_ok=True)
         
         ydl_opts = {
-            'outtmpl': os.path.join(req_dir, '%(title)s.%(ext)s'),
+            'outtmpl': os.path.join(req_dir, f"{req_id}.%(ext)s"),
             'format': 'bestvideo[ext=mp4]+bestaudio[ext=m4a]/best[ext=mp4]/best',
             'merge_output_format': 'mp4',
-            'restrictfilenames': True,  # Ensures yt-dlp normalizes output names heavily
+            'restrictfilenames': True,
             'quiet': True,
             'no_warnings': True,
         }
@@ -102,15 +145,11 @@ class DLCog(commands.GroupCog, name="dl"):
         if os.path.exists(COOKIES_FILE):
             ydl_opts['cookiefile'] = COOKIES_FILE
             
-        # ==========================================
-        # DOWNLOAD FLOW ROUTING
-        # ==========================================
         host = get_hostname(url)
         success = False
-        error_msgs =[]
+        error_msgs = []
         
         try:
-            # ATTEMPT 1: Primary Downloader (yt-dlp)
             loop = asyncio.get_running_loop()
             def extract():
                 with yt_dlp.YoutubeDL(ydl_opts) as ydl:
@@ -118,89 +157,63 @@ class DLCog(commands.GroupCog, name="dl"):
                     
             await loop.run_in_executor(None, extract)
             
-            # Check if files actually downloaded
             if any(f.lower().endswith(('.mp4', '.webm', '.mkv', '.mov')) for f in os.listdir(req_dir)):
                 success = True
             else:
-                error_msgs.append("yt-dlp: No video files downloaded.")
+                error_msgs.append("yt-dlp: No media files were produced in the download directory.")
         except Exception as e:
-            error_msgs.append(f"yt-dlp: {str(e)[:200]}")
+            error_msgs.append(f"yt-dlp error: {str(e)}")
             
-        # ATTEMPT 2: Fallbacks based on host
         if not success:
             if host in ['instagram.com', 'instagr.am']:
-                await interaction.followup.send("⏳ yt-dlp failed, falling back to Instaloader for Instagram...", ephemeral=True)
                 success, err = await self.fallback_instaloader(url, req_dir)
                 if not success:
-                    error_msgs.append(f"instaloader: {err}")
+                    error_msgs.append(f"Instaloader fallback error: {err}")
                 
-        # ==========================================
-        
         try:
             if not success:
-                return await interaction.followup.send(f"❌ Failed to download the video.\nErrors:\n" + "\n".join(error_msgs))
+                err_text = "\n".join(error_msgs)[:1800]
+                return await interaction.followup.send(f"❌ Failed to download the video.\n**Logs:**\n```\n{err_text}\n```", ephemeral=True)
                 
-            # Locate the video file downloaded
-            downloaded_videos =[os.path.join(req_dir, f) for f in os.listdir(req_dir) if f.lower().endswith(('.mp4', '.webm', '.mkv', '.mov'))]
-            if not downloaded_videos:
-                return await interaction.followup.send("❌ No video file found after successful download step.")
+            media_files = [
+                os.path.join(req_dir, f) for f in os.listdir(req_dir) 
+                if f.lower().endswith(('.mp4', '.webm', '.mkv', '.mov', '.avi'))
+            ]
+            
+            if not media_files:
+                return await interaction.followup.send("❌ No valid video file found after a successful download execution.", ephemeral=True)
                 
-            orig_file = downloaded_videos[0]
+            media_files.sort(key=lambda x: os.path.getsize(x), reverse=True)
+            original_file = media_files[0]
             
-            # Strip extension completely to ensure it's normalized to a-zA-Z0-9
-            raw_ext = os.path.splitext(orig_file)[1].lower()
-            clean_ext = re.sub(r'[^a-z0-9]', '', raw_ext) 
+            file_size_mb = os.path.getsize(original_file) / (1024 * 1024)
+            final_file = original_file
             
-            # req_id is a hex UUID (strictly alphanumeric), fulfilling the strict naming constraint
-            actual_file = os.path.join(req_dir, f"{req_id}.{clean_ext}")
-            os.rename(orig_file, actual_file)
-            
-            file_size_mb = os.path.getsize(actual_file) / (1024 * 1024)
-            final_file = actual_file
-            
-            # Auto-shrink if > 10MB
-            if file_size_mb > 10:
-                await interaction.followup.send(f"⏳ Video is {file_size_mb:.1f}MB, shrinking down to 9MB...", ephemeral=True)
+            if file_size_mb > 10.0:
+                await interaction.followup.send(f"⏳ Video is {file_size_mb:.1f}MB. Compressing to fit under upload limits...", ephemeral=True)
                 
-                if not os.path.exists(SHRINKER_PATH):
-                    return await interaction.followup.send(f"❌ Shrinker binary not found at `{SHRINKER_PATH}`.")
+                shrunk_file = os.path.join(req_dir, f"shrunk_{req_id}.mp4")
+                shrink_success, shrink_err = await shrink_video_ffmpeg(original_file, shrunk_file, target_mb=9.0)
+                
+                if not shrink_success:
+                    err_trim = shrink_err[-1800:] if shrink_err else "Unknown FFmpeg error."
+                    return await interaction.followup.send(f"❌ Failed to compress the video.\n**FFmpeg Error:**\n```\n{err_trim}\n```", ephemeral=True)
+                
+                if not os.path.exists(shrunk_file):
+                    return await interaction.followup.send("❌ Video compression succeeded but the output file is missing.", ephemeral=True)
                     
-                os.chmod(SHRINKER_PATH, 0o755)
+                final_file = shrunk_file
                 
-                process = await asyncio.create_subprocess_exec(
-                    SHRINKER_PATH, "-m", "9", actual_file,
-                    stdout=asyncio.subprocess.PIPE,
-                    stderr=asyncio.subprocess.PIPE
-                )
-                stdout, stderr = await process.communicate()
-                
-                if process.returncode != 0:
-                    # FIX: Safely replace invalid encoding characters rather than throwing an Exception
-                    error_msg = stderr.decode('utf-8', errors='replace')[:500] if stderr else "Unknown failure from shrinker."
-                    return await interaction.followup.send(f"❌ Shrinker failed: ```\n{error_msg}\n```")
-                
-                # Verify the shrunk file was placed in ./videos/shrunk_<req_id>...
-                possible_files = glob.glob(os.path.join(VIDEOS_DIR, f"shrunk_{req_id}.*"))
-                if possible_files:
-                    final_file = possible_files[0]
-                else:
-                    return await interaction.followup.send("❌ Could not locate the shrunk video output.")
-                
-            # Ensure it's under Discord's final 25MB limit just in case shrinker underperformed
             if os.path.getsize(final_file) > 25 * 1024 * 1024:
-                return await interaction.followup.send("❌ Video is still too large for Discord even after shrinking.")
+                return await interaction.followup.send("❌ The resulting video is still too large for Discord (>25MB) even after compression.", ephemeral=True)
                 
             file = discord.File(final_file)
-            await interaction.followup.send(content=f"✅ Here is your video:", file=file)
+            await interaction.followup.send(content="✅ Here is your video:", file=file)
             
         except Exception as e:
-            await interaction.followup.send(f"❌ An error occurred while processing: {e}")
+            await interaction.followup.send(f"❌ An unexpected error occurred while processing: `{str(e)}`", ephemeral=True)
         finally:
-            # Cleanup all temp files and shrunk files to prevent server bloat
             shutil.rmtree(req_dir, ignore_errors=True)
-            for f in glob.glob(os.path.join(VIDEOS_DIR, f"shrunk_{req_id}.*")):
-                try: os.remove(f)
-                except: pass
 
     @app_commands.command(name="photos", description="Download photos from a URL.")
     @app_commands.describe(url="The URL of the photos to download")
@@ -208,59 +221,49 @@ class DLCog(commands.GroupCog, name="dl"):
     async def dl_photos(self, interaction: discord.Interaction, url: str):
         await interaction.response.defer()
         
-        req_id = uuid.uuid4().hex[:8]
+        req_id = f"temp_{uuid.uuid4().hex[:12]}"
         req_dir = os.path.join(TEMP_DIR, req_id)
         os.makedirs(req_dir, exist_ok=True)
         
-        # ==========================================
-        # DOWNLOAD FLOW ROUTING
-        # ==========================================
         host = get_hostname(url)
         success = False
-        error_msgs =[]
+        error_msgs = []
         
         cmd = ["gallery-dl", "-d", req_dir, url]
         if os.path.exists(COOKIES_FILE):
             cmd.extend(["--cookies", COOKIES_FILE])
             
-        # ATTEMPT 1: Primary Downloader (gallery-dl)
         try:
             process = await asyncio.create_subprocess_exec(
                 *cmd,
                 stdout=asyncio.subprocess.PIPE,
                 stderr=asyncio.subprocess.PIPE
             )
-            out, err = await process.communicate()
+            _, err = await process.communicate()
             if process.returncode == 0:
                 success = True
             else:
-                error_msgs.append(f"gallery-dl: {err.decode('utf-8')[:200]}")
+                error_msgs.append(f"gallery-dl error: {err.decode('utf-8', errors='replace')}")
         except Exception as e:
-            error_msgs.append(f"gallery-dl: {str(e)[:200]}")
+            error_msgs.append(f"gallery-dl exception: {str(e)}")
             
-        # ATTEMPT 2: Fallbacks based on host
         if not success:
             if host in ['instagram.com', 'instagr.am']:
-                await interaction.followup.send("⏳ gallery-dl failed, falling back to Instaloader for Instagram...", ephemeral=True)
                 success, err = await self.fallback_instaloader(url, req_dir)
                 if not success:
-                    error_msgs.append(f"instaloader: {err}")
-        # ==========================================
-        
+                    error_msgs.append(f"Instaloader fallback error: {err}")
+                    
         try:
-            # Recursively find all photo files in the output directory regardless of success 
-            # (sometimes gallery-dl throws errors but still downloads partial images)
-            downloaded_photos =[]
+            downloaded_photos = []
             for root, _, files in os.walk(req_dir):
                 for file in files:
                     if file.lower().endswith(('.jpg', '.jpeg', '.png', '.webp')):
                         downloaded_photos.append(os.path.join(root, file))
                         
             if not downloaded_photos:
-                err_text = "\n".join(error_msgs) if error_msgs else "Unknown error."
-                return await interaction.followup.send(f"❌ No photos were found/downloaded.\nErrors:\n```{err_text}```")
+                err_text = "\n".join(error_msgs)[:1800] if error_msgs else "No supported images located after download."
+                return await interaction.followup.send(f"❌ No photos were found or downloaded.\n**Logs:**\n```\n{err_text}\n```", ephemeral=True)
                 
-            # Batch send up to 10 at a time (Discord's attachment limit per message)
             batch_size = 10
             for i in range(0, len(downloaded_photos), batch_size):
                 batch_files = downloaded_photos[i:i+batch_size]
@@ -271,7 +274,7 @@ class DLCog(commands.GroupCog, name="dl"):
                     await interaction.channel.send(files=discord_files)
                 
         except Exception as e:
-            await interaction.followup.send(f"❌ An error occurred: {e}")
+            await interaction.followup.send(f"❌ An error occurred: `{str(e)}`", ephemeral=True)
         finally:
             shutil.rmtree(req_dir, ignore_errors=True)
 
@@ -279,14 +282,15 @@ class DLCog(commands.GroupCog, name="dl"):
     @app_commands.checks.has_permissions(manage_guild=True)
     async def dl_cookies(self, interaction: discord.Interaction, file: discord.Attachment):
         if not file.filename.endswith('.txt'):
-            return await interaction.response.send_message("❌ Please upload a valid .txt file.", ephemeral=True)
+            return await interaction.response.send_message("❌ Please upload a valid `.txt` file.", ephemeral=True)
             
         await interaction.response.defer(ephemeral=True)
         try:
             await file.save(COOKIES_FILE)
-            await interaction.followup.send("✅ Cookies file successfully updated.")
+            await interaction.followup.send("✅ Cookies file successfully updated.", ephemeral=True)
         except Exception as e:
-            await interaction.followup.send(f"❌ Failed to save cookies: {e}")
+            await interaction.followup.send(f"❌ Failed to save cookies: `{str(e)}`", ephemeral=True)
+
 
 async def setup(bot):
     await bot.add_cog(DLCog(bot))

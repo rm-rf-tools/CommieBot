@@ -1,0 +1,129 @@
+<?xml version="1.0" encoding="ISO-8859-1"?>
+<ttFont ttLibVersion="2.4">
+
+  <prep>
+    <assembly>
+      MPPEM[ ]
+      PUSHW[ ]  /* 1 value pushed */
+      200
+      GT[ ]
+      IF[ ]
+      PUSHB[ ]  /* 2 values pushed */
+      1 1
+      INSTCTRL[ ]
+      EIF[ ]
+      PUSHW[ ]  /* 2 values pushed */
+      2048 2048
+      MUL[ ]
+      DUP[ ]
+      PUSHB[ ]  /* 1 value pushed */
+      1
+      SWAP[ ]
+      WCVTP[ ]
+      PUSHB[ ]  /* 1 value pushed */
+      3
+      SWAP[ ]
+      WCVTF[ ]
+      PUSHB[ ]  /* 1 value pushed */
+      23
+      RCVT[ ]
+      DUP[ ]
+      DUP[ ]
+      MPPEM[ ]
+      PUSHW[ ]  /* 1 value pushed */
+      14
+      LTEQ[ ]
+      MPPEM[ ]
+      PUSHB[ ]  /* 1 value pushed */
+      6
+      GTEQ[ ]
+      AND[ ]
+      IF[ ]
+      PUSHB[ ]  /* 1 value pushed */
+      52
+      ELSE[ ]
+      PUSHB[ ]  /* 1 value pushed */
+      40
+      EIF[ ]
+      ADD[ ]
+      FLOOR[ ]
+      DUP[ ]
+      ROLL[ ]
+      NEQ[ ]
+      IF[ ]
+      PUSHB[ ]  /* 1 value pushed */
+      2
+      CINDEX[ ]
+      SUB[ ]
+      PUSHB[ ]  /* 1 value pushed */
+      1
+      RCVT[ ]
+      MUL[ ]
+      SWAP[ ]
+      DIV[ ]
+      PUSHB[ ]  /* 1 value pushed */
+      2
+      SWAP[ ]
+      WCVTP[ ]
+      PUSHB[ ]  /* 3 values pushed */
+      11 1 6
+      LOOPCALL[ ]
+      PUSHB[ ]  /* 3 values pushed */
+      12 6 6
+      LOOPCALL[ ]
+      PUSHB[ ]  /* 3 values pushed */
+      20 6 6
+      LOOPCALL[ ]
+      EIF[ ]
+      PUSHB[ ]  /* 3 values pushed */
+      4 40 9
+      RCVT[ ]
+      GT[ ]
+      WCVTP[ ]
+      PUSHB[ ]  /* 3 values pushed */
+      12 8 7
+      LOOPCALL[ ]
+      PUSHB[ ]  /* 2 values pushed */
+      6 1
+      WCVTP[ ]
+      PUSHB[ ]  /* 2 values pushed */
+      36 1
+      GETINFO[ ]
+      LTEQ[ ]
+      IF[ ]
+      PUSHB[ ]  /* 1 value pushed */
+      64
+      GETINFO[ ]
+      IF[ ]
+      PUSHB[ ]  /* 2 values pushed */
+      6 3
+      WCVTP[ ]
+      PUSHB[ ]  /* 2 values pushed */
+      38 1
+      GETINFO[ ]
+      LTEQ[ ]
+      IF[ ]
+      PUSHW[ ]  /* 1 value pushed */
+      1024
+      GETINFO[ ]
+      IF[ ]
+      PUSHB[ ]  /* 2 values pushed */
+      6 1
+      WCVTP[ ]
+      EIF[ ]
+      EIF[ ]
+      EIF[ ]
+      EIF[ ]
+      PUSHW[ ]  /* 1 value pushed */
+      511
+      SCANCTRL[ ]
+      PUSHB[ ]  /* 1 value pushed */
+      4
+      SCANTYPE[ ]
+      PUSHB[ ]  /* 2 values pushed */
+      5 0
+      WCVTP[ ]
+    </assembly>
+  </prep>
+
+</ttFont>

@@ -9,6 +9,7 @@ Commands:
     - /quote list: List all available quote background templates. (User)
     - /quote generate <name> <quote> [layout]: Generate a quote image using a saved template. (User)
     - /quote delete <name>: Remove a quote background template. (Admin: Manage Guild)
+    - /quote mocha substack <title>: Generate a Mocha Substack promo image. (User)
 """
 
 # cogs/quotemaker.py
@@ -244,9 +245,80 @@ def clean_name(name: str) -> str:
 def display_name(name: str) -> str:
     return name.replace("_", " ").title()
 
+
+class MochaSubstackLayout:
+    @staticmethod
+    def generate(title_text: str) -> io.BytesIO:
+        template_path = "data/mocha/mochasubstacktemplate.png"
+        if not os.path.exists(template_path):
+            raise FileNotFoundError(f"Mocha Substack template not found at {template_path}")
+
+        img = Image.open(template_path).convert("RGBA")
+        draw = ImageDraw.Draw(img)
+
+        font_paths_to_try = [
+            "data/fonts/Times New Roman.ttf",
+            os.path.join(FONT_DIR, "Times New Roman.ttf"),
+            os.path.join(FONT_DIR, "TimesNewRoman.ttf"),
+            "times.ttf",
+            "georgia.ttf",
+            "FreeSerif.ttf",
+            "DejaVuSerif.ttf"
+        ]
+        
+        quote_font = None
+        for f_path in font_paths_to_try:
+            try:
+                quote_font = ImageFont.truetype(f_path, size=52)
+                break
+            except IOError:
+                continue
+
+        if not quote_font:
+            try:
+                quote_font = ImageFont.truetype(os.path.join(FONT_DIR, "NugoSansLight-9YzoK.ttf"), size=52)
+            except IOError:
+                quote_font = ImageFont.load_default()
+
+        max_width = 595
+        words = title_text.split()
+        lines = []
+        current_line = []
+
+        for word in words:
+            test_line = " ".join(current_line + [word])
+            if quote_font.getlength(test_line) <= max_width:
+                current_line.append(word)
+            else:
+                if current_line:
+                    lines.append(" ".join(current_line))
+                    current_line = [word]
+                else:
+                    lines.append(word)
+                    current_line = []
+        if current_line:
+            lines.append(" ".join(current_line))
+
+        wrapped_text = "\n".join(lines)
+
+        bbox = draw.multiline_textbbox((0, 0), wrapped_text, font=quote_font, spacing=12)
+        text_height = bbox[3] - bbox[1]
+
+        x_pos = 48
+        y_pos = 695 - text_height
+
+        draw.multiline_text((x_pos, y_pos), wrapped_text, font=quote_font, fill=(255, 255, 255, 255), align='left', spacing=12)
+
+        return export_image(img)
+
+
+
 class QuoteMaker(commands.GroupCog, name="quote"):
     def __init__(self, bot):
         self.bot = bot
+
+    # This creates the nested /quote mocha command group!
+    mocha = app_commands.Group(name="mocha", description="Mocha specific quote templates")
 
     async def cog_app_command_error(self, interaction: discord.Interaction, error: app_commands.AppCommandError):
         if interaction.response.is_done():
@@ -433,5 +505,21 @@ class QuoteMaker(commands.GroupCog, name="quote"):
             await interaction.followup.send(f"✅ Successfully deleted template: **{pretty_name}**")
         except Exception as e:
             await interaction.followup.send(f"❌ Failed to delete template: {e}")
+
+    @mocha.command(name="substack", description="Generate a Mocha Substack promo image.")
+    @app_commands.describe(title="The title text to display (keep it title length for best look)")
+    async def mocha_substack(self, interaction: discord.Interaction, title: str):
+        await interaction.response.defer()
+        
+        try:
+            image_buffer = MochaSubstackLayout.generate(title)
+            file = discord.File(fp=image_buffer, filename="mocha_substack.jpg")
+            await interaction.followup.send(file=file)
+        except FileNotFoundError as e:
+            await interaction.followup.send(f"❌ **Error:** {e}. Please ensure the background image exists in `data/mocha/mochasubstacktemplate.png`.", ephemeral=True)
+        except Exception as e:
+            await interaction.followup.send(f"❌ Failed to generate Mocha Substack quote: {e}", ephemeral=True)
+
+
 async def setup(bot):
     await bot.add_cog(QuoteMaker(bot))
