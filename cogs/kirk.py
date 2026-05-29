@@ -19,6 +19,16 @@ import io
 import csv
 import uuid
 import asyncio
+import logging
+import time
+
+# --- Setup Logging ---
+logger = logging.getLogger("Kirkify")
+logger.setLevel(logging.INFO)
+if not logger.handlers:
+    console_handler = logging.StreamHandler()
+    console_handler.setFormatter(logging.Formatter('%(asctime)s - %(name)s - %(levelname)s - %(message)s'))
+    logger.addHandler(console_handler)
 
 # Absolute paths internal to the Docker container
 BASE_DIR = os.path.abspath("./data/kirk")
@@ -27,6 +37,22 @@ KIRK_TEMP_DIR = os.path.join(BASE_DIR, "temp")
 
 os.makedirs(KIRK_IMAGES_DIR, exist_ok=True)
 os.makedirs(KIRK_TEMP_DIR, exist_ok=True)
+
+async def read_stream_and_log(stream: asyncio.StreamReader, prefix: str, is_error: bool = False) -> str:
+    """Reads an asyncio stream line by line, logs it, and returns the full text."""
+    output = []
+    while True:
+        line = await stream.readline()
+        if not line:
+            break
+        decoded_line = line.decode('utf-8', errors='replace').strip()
+        if decoded_line:
+            output.append(decoded_line)
+            if is_error:
+                logger.error(f"[{prefix}] {decoded_line}")
+            else:
+                logger.info(f"[{prefix}] {decoded_line}")
+    return "\n".join(output)
 
 async def get_video_duration(file_path: str) -> float:
     cmd = [
@@ -41,11 +67,12 @@ async def get_video_duration(file_path: str) -> float:
         stdout, _ = await proc.communicate()
         if proc.returncode == 0:
             return float(stdout.decode('utf-8').strip())
-    except Exception:
-        pass
+    except Exception as e:
+        logger.error(f"[FFprobe] Failed to get duration: {e}")
     return 0.0
 
 async def shrink_video_ffmpeg(input_path: str, output_path: str, target_mb: float = 24.0) -> tuple[bool, str]:
+    logger.info(f"Starting video compression to target {target_mb}MB...")
     duration = await get_video_duration(input_path)
     
     if duration <= 0:
@@ -72,10 +99,16 @@ async def shrink_video_ffmpeg(input_path: str, output_path: str, target_mb: floa
         proc = await asyncio.create_subprocess_exec(
             *cmd, stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.PIPE
         )
-        _, stderr = await proc.communicate()
+        
+        # Stream FFmpeg logs to prevent deadlocks
+        _, stderr_text = await asyncio.gather(
+            read_stream_and_log(proc.stdout, "FFmpeg"),
+            read_stream_and_log(proc.stderr, "FFmpeg", is_error=True)
+        )
+        await proc.wait()
         
         if proc.returncode != 0:
-            return False, stderr.decode('utf-8', errors='replace')
+            return False, stderr_text
         return True, ""
     except Exception as e:
         return False, str(e)
@@ -166,6 +199,27 @@ class KirkifyCog(commands.GroupCog, name="kirkify"):
             for n in names if current.lower() in n.lower()
         ][:25]
 
+    async def send_or_fallback(self, interaction: discord.Interaction, status_message: discord.Message, content: str, file: discord.File = None):
+        """Safely sends the final result, falling back to a channel message if the interaction timed out."""
+        try:
+            # Try to edit the original "Processing..." message
+            if file:
+                await interaction.followup.send(content=content, file=file)
+                await status_message.delete()
+            else:
+                await status_message.edit(content=content)
+        except (discord.NotFound, discord.HTTPException):
+            logger.warning("Interaction token expired. Falling back to channel send.")
+            # If the 15-minute token expired, fallback to sending it as a new message to the channel
+            try:
+                fallback_content = f"{interaction.user.mention} {content}"
+                if file:
+                    await interaction.channel.send(content=fallback_content, file=file)
+                else:
+                    await interaction.channel.send(content=fallback_content)
+            except Exception as e:
+                logger.error(f"Fallback send also failed: {e}")
+
     @app_commands.command(name="media", description="Face swap a source face onto the target media.")
     @app_commands.describe(source_face="The name of the source face to apply", target_media="The image or video to alter")
     @app_commands.autocomplete(source_face=face_autocomplete)
@@ -175,8 +229,12 @@ class KirkifyCog(commands.GroupCog, name="kirkify"):
             return await interaction.response.send_message(f"❌ Source face **{source_face}** not found.", ephemeral=True)
 
         await interaction.response.defer()
-
-        status_message = await interaction.followup.send("⏳ **Processing media...**\n*(Note: The very first time this runs on your server, it must download a 500MB AI model. Please be patient!)*", wait=True)
+        
+        status_message = await interaction.followup.send(
+            "⏳ **Processing media...**\n"
+            "*(This may take a while for videos. Check your developer terminal logs to see real-time progress!)*", 
+            wait=True
+        )
 
         req_id = uuid.uuid4().hex[:8]
         ext = os.path.splitext(target_media.filename)[1].lower()
@@ -184,12 +242,15 @@ class KirkifyCog(commands.GroupCog, name="kirkify"):
         output_path = os.path.join(KIRK_TEMP_DIR, f"{req_id}_output{ext}")
         shrunk_path = os.path.join(KIRK_TEMP_DIR, f"{req_id}_shrunk.mp4")
 
+        start_time = time.time()
+
         try:
+            logger.info(f"[{req_id}] Downloading target media: {target_media.filename}")
             await target_media.save(target_path)
 
             facefusion_script = "/app/facefusion/facefusion.py"
             if not os.path.exists(facefusion_script):
-                return await status_message.edit(content="❌ Internal Path Error: The FaceFusion core script was not found in the container at `/app/facefusion/facefusion.py`.")
+                return await self.send_or_fallback(interaction, status_message, "❌ Internal Path Error: The FaceFusion core script was not found in the container at `/app/facefusion/facefusion.py`.")
 
             cmd = [
                 "python", facefusion_script, "headless-run",
@@ -201,45 +262,61 @@ class KirkifyCog(commands.GroupCog, name="kirkify"):
                 "-o", output_path
             ]
 
-            # VITAL: Set cwd to /app/facefusion so it can locate its modules correctly
+            logger.info(f"[{req_id}] Starting FaceFusion Subprocess...")
             process = await asyncio.create_subprocess_exec(
                 *cmd,
                 cwd="/app/facefusion",
                 stdout=asyncio.subprocess.PIPE,
                 stderr=asyncio.subprocess.PIPE
             )
-            stdout, stderr = await process.communicate()
+
+            # Stream logs in real time to prevent deadlocks and allow developer monitoring
+            _, stderr_text = await asyncio.gather(
+                read_stream_and_log(process.stdout, "FaceFusion"),
+                read_stream_and_log(process.stderr, "FaceFusion", is_error=True)
+            )
+            await process.wait()
+
+            process_time = round(time.time() - start_time, 2)
+            logger.info(f"[{req_id}] FaceFusion finished in {process_time}s with return code {process.returncode}")
 
             if process.returncode != 0:
-                err_text = stderr.decode('utf-8', errors='replace')[-1800:]
-                return await status_message.edit(content=f"❌ FaceFusion encountered an error:\n```\n{err_text}\n```")
+                err_text = stderr_text[-1800:] if stderr_text else "No output provided."
+                return await self.send_or_fallback(interaction, status_message, f"❌ FaceFusion encountered an error:\n```\n{err_text}\n```")
 
             if not os.path.exists(output_path):
-                return await status_message.edit(content="❌ Output file was not generated by FaceFusion.")
+                return await self.send_or_fallback(interaction, status_message, "❌ Output file was not generated by FaceFusion.")
 
             final_file = output_path
             is_video = ext in ('.mp4', '.webm', '.mov', '.avi', '.mkv')
             
+            # Compress if needed
             if is_video and (os.path.getsize(output_path) / (1024 * 1024)) > 24.0:
-                await status_message.edit(content="⏳ Resulting video is large. Compressing to fit Discord upload limits...")
+                try:
+                    await status_message.edit(content="⏳ Resulting video is large. Compressing to fit Discord upload limits...")
+                except discord.NotFound:
+                    pass # Message interaction expired, just continue
+                    
                 shrink_success, shrink_err = await shrink_video_ffmpeg(output_path, shrunk_path, target_mb=24.0)
                 
                 if shrink_success and os.path.exists(shrunk_path):
                     final_file = shrunk_path
+                    logger.info(f"[{req_id}] Video shrunk successfully.")
                 else:
-                    return await status_message.edit(content=f"❌ Video compression failed: {shrink_err}")
+                    return await self.send_or_fallback(interaction, status_message, f"❌ Video compression failed: {shrink_err}")
 
             if (os.path.getsize(final_file) / (1024 * 1024)) > 25.0:
-                return await status_message.edit(content="❌ The resulting media is still over 25MB and cannot be uploaded to Discord.")
+                return await self.send_or_fallback(interaction, status_message, "❌ The resulting media is still over 25MB and cannot be uploaded to Discord.")
 
+            logger.info(f"[{req_id}] Sending final payload to Discord...")
             file = discord.File(final_file, filename=f"kirkified_{source_face}{ext}")
-            
-            await interaction.followup.send(content=f"✅ Successfully kirkified with **{source_face}**!", file=file)
-            await status_message.delete()
+            await self.send_or_fallback(interaction, status_message, f"✅ Successfully kirkified with **{source_face}**!", file)
 
         except Exception as e:
-            await status_message.edit(content=f"❌ An unexpected error occurred: `{str(e)}`")
+            logger.exception(f"[{req_id}] Unhandled Exception during kirkify_media:")
+            await self.send_or_fallback(interaction, status_message, f"❌ An unexpected error occurred: `{str(e)}`")
         finally:
+            logger.info(f"[{req_id}] Cleaning up temporary files...")
             for p in [target_path, output_path, shrunk_path]:
                 if p and os.path.exists(p):
                     try:
@@ -260,6 +337,7 @@ class KirkifyCog(commands.GroupCog, name="kirkify"):
             save_path = os.path.join(KIRK_IMAGES_DIR, f"{safe_name}.png")
             await photo.save(save_path)
             await interaction.followup.send(f"✅ Successfully saved source face **{safe_name}**.")
+            logger.info(f"Added new source face: {safe_name}")
         except Exception as e:
             await interaction.followup.send(f"❌ Failed to save image: {e}")
 
@@ -277,6 +355,7 @@ class KirkifyCog(commands.GroupCog, name="kirkify"):
         try:
             os.remove(file_path)
             await interaction.response.send_message(f"🗑️ Deleted source face **{name}**.", ephemeral=True)
+            logger.info(f"Deleted source face: {safe_name}")
         except Exception as e:
             await interaction.response.send_message(f"❌ Failed to delete image: {e}", ephemeral=True)
 
