@@ -1,11 +1,12 @@
 """
 filename: cogs/dl.py
-description: Download videos and photos from various platforms using yt-dlp and gallery-dl. Features host-based fallbacks (like instaloader for Instagram) and automatically shrinks videos over 10MB using an FFmpeg subprocess implementation to safely fit within Discord's upload limits, optimized for iOS compatibility. Includes detailed error logging and strictly targets 10MB limits.
+description: Download videos and photos from various platforms using yt-dlp and gallery-dl. Features host-based fallbacks (like instaloader for Instagram) and automatically shrinks videos over 10MB using an FFmpeg subprocess implementation to safely fit within Discord's upload limits, optimized for iOS compatibility. Logs all history for administration.
 Views:
-    - None
+    - DLHistoryPaginator: Handles pagination for displaying a guild's media download history.
 Commands:
     - /dl video <url>: Download a video from a URL. Prioritizes file size and mobile compatibility over raw quality. (User)
     - /dl photos <url>: Download photos from a URL. (User)
+    - /dl history: View a paginated history of all downloaded URLs in the server. (User)
     - /dl cookies <file>: Upload a cookies.txt file for yt-dlp/gallery-dl to bypass login walls. (Admin: Manage Guild)
 """
 
@@ -21,6 +22,7 @@ import re
 import traceback
 import logging
 from urllib.parse import urlparse
+from db import DatabaseController
 
 logger = logging.getLogger("cogs.dl")
 
@@ -125,6 +127,92 @@ async def process_video_ffmpeg(input_path: str, output_path: str, target_mb: flo
         return False, str(e)
 
 
+class DLHistoryPaginator(discord.ui.View):
+    def __init__(self, history: list, bot: commands.Bot):
+        super().__init__(timeout=300)
+        self.history = history
+        self.bot = bot
+        self.current_page = 0
+        self.per_page = 5
+        self.user_cache = {}  # Cache to prevent fetching the same user multiple times
+        self.update_buttons()
+
+    def update_buttons(self):
+        max_pages = max(0, (len(self.history) - 1) // self.per_page)
+        for child in self.children:
+            if getattr(child, "custom_id", None) in ["first_btn", "prev_btn"]:
+                child.disabled = self.current_page == 0
+            elif getattr(child, "custom_id", None) in ["next_btn", "last_btn"]:
+                child.disabled = self.current_page >= max_pages
+
+    async def generate_embed(self) -> discord.Embed:
+        embed = discord.Embed(
+            title="📥 Download History",
+            color=discord.Color.blue()
+        )
+        
+        start = self.current_page * self.per_page
+        end = start + self.per_page
+        page_items = self.history[start:end]
+        
+        if not page_items:
+            embed.description = "No history found."
+            return embed
+
+        for idx, record in enumerate(page_items, start=start+1):
+            dt = f"<t:{record.timestamp}:R>"
+            m_type = "🎬 Video" if record.media_type == "video" else "📸 Photo"
+            
+            # Safely get or fetch the user's name so we don't display a raw <@id>
+            user_id = int(record.user_id)
+            if user_id in self.user_cache:
+                username = self.user_cache[user_id]
+            else:
+                user = self.bot.get_user(user_id)
+                if not user:
+                    try:
+                        user = await self.bot.fetch_user(user_id)
+                    except discord.NotFound:
+                        pass
+                username = f"@{user.name}" if user else f"User {user_id}"
+                self.user_cache[user_id] = username
+
+            embed.add_field(
+                name=f"{idx}. {m_type} by {username}",
+                value=f"**URL:** {record.url}\n**Time:** {dt}",
+                inline=False
+            )
+
+        max_pages = max(1, (len(self.history) + self.per_page - 1) // self.per_page)
+        embed.set_footer(text=f"Page {self.current_page + 1} of {max_pages} | Total: {len(self.history)} records")
+        return embed
+
+    @discord.ui.button(label="⏮ First", style=discord.ButtonStyle.secondary, custom_id="first_btn")
+    async def first_btn(self, interaction: discord.Interaction, button: discord.ui.Button):
+        self.current_page = 0
+        self.update_buttons()
+        await interaction.response.edit_message(embed=await self.generate_embed(), view=self)
+
+    @discord.ui.button(label="◀️ Prev", style=discord.ButtonStyle.secondary, custom_id="prev_btn")
+    async def prev_btn(self, interaction: discord.Interaction, button: discord.ui.Button):
+        self.current_page -= 1
+        self.update_buttons()
+        await interaction.response.edit_message(embed=await self.generate_embed(), view=self)
+
+    @discord.ui.button(label="Next ▶️", style=discord.ButtonStyle.primary, custom_id="next_btn")
+    async def next_btn(self, interaction: discord.Interaction, button: discord.ui.Button):
+        self.current_page += 1
+        self.update_buttons()
+        await interaction.response.edit_message(embed=await self.generate_embed(), view=self)
+
+    @discord.ui.button(label="Last ⏭", style=discord.ButtonStyle.primary, custom_id="last_btn")
+    async def last_btn(self, interaction: discord.Interaction, button: discord.ui.Button):
+        max_pages = max(0, (len(self.history) - 1) // self.per_page)
+        self.current_page = max_pages
+        self.update_buttons()
+        await interaction.response.edit_message(embed=await self.generate_embed(), view=self)
+
+
 class DLCog(commands.GroupCog, name="dl"):
     def __init__(self, bot):
         self.bot = bot
@@ -173,7 +261,7 @@ class DLCog(commands.GroupCog, name="dl"):
     @app_commands.describe(url="The URL of the video to download")
     @app_commands.checks.bot_has_permissions(send_messages=True, attach_files=True)
     async def dl_video(self, interaction: discord.Interaction, url: str):
-        await interaction.response.defer()
+        await interaction.response.send_message(f"⏳ Starting background download...", ephemeral=True)
         
         req_id = f"temp_{uuid.uuid4().hex[:12]}"
         req_dir = os.path.join(TEMP_DIR, req_id)
@@ -228,7 +316,7 @@ class DLCog(commands.GroupCog, name="dl"):
         try:
             if not success:
                 err_text = "\n".join(error_msgs)[:1800]
-                return await interaction.followup.send(f"❌ Failed to download the video.\n**Logs:**\n```\n{err_text}\n```", ephemeral=True)
+                return await interaction.edit_original_response(content=f"❌ Failed to download the video.\n**Logs:**\n```\n{err_text}\n```")
                 
             media_files = [
                 os.path.join(req_dir, f) for f in os.listdir(req_dir) 
@@ -236,7 +324,7 @@ class DLCog(commands.GroupCog, name="dl"):
             ]
             
             if not media_files:
-                return await interaction.followup.send("❌ No valid video file found after a successful download execution.", ephemeral=True)
+                return await interaction.edit_original_response(content="❌ No valid video file found after a successful download execution.")
                 
             media_files.sort(key=lambda x: os.path.getsize(x), reverse=True)
             original_file = media_files[0]
@@ -248,9 +336,9 @@ class DLCog(commands.GroupCog, name="dl"):
             needs_shrink = file_size_mb > target_compression_mb
             
             if needs_shrink:
-                await interaction.followup.send(f"⏳ Video is {file_size_mb:.1f}MB. Compressing to fit 10.0MB upload limit...", ephemeral=True)
+                await interaction.edit_original_response(content=f"⏳ Video is {file_size_mb:.1f}MB. Compressing to fit 10.0MB upload limit...")
             else:
-                await interaction.followup.send(f"⏳ Processing video encoding...", ephemeral=True)
+                await interaction.edit_original_response(content=f"⏳ Processing video encoding...")
                 
             processed_file = os.path.join(req_dir, f"processed_{req_id}.mp4")
             shrink_success, shrink_err = await process_video_ffmpeg(original_file, processed_file, target_mb=target_compression_mb, shrink=needs_shrink)
@@ -258,11 +346,11 @@ class DLCog(commands.GroupCog, name="dl"):
             if not shrink_success:
                 err_trim = shrink_err[-1800:] if shrink_err else "Unknown FFmpeg error."
                 logger.error(f"Compression failed completely: {err_trim}")
-                return await interaction.followup.send(f"❌ Failed to process the video.\n**FFmpeg Error:**\n```\n{err_trim}\n```", ephemeral=True)
+                return await interaction.edit_original_response(content=f"❌ Failed to process the video.\n**FFmpeg Error:**\n```\n{err_trim}\n```")
             
             if not os.path.exists(processed_file):
                 logger.error("Compression reported success but output file missing.")
-                return await interaction.followup.send("❌ Video compression succeeded but the output file is missing.", ephemeral=True)
+                return await interaction.edit_original_response(content="❌ Video compression succeeded but the output file is missing.")
                 
             final_file = processed_file
                 
@@ -272,22 +360,26 @@ class DLCog(commands.GroupCog, name="dl"):
 
             if final_file_size_mb >= server_limit_mb:
                 logger.error(f"Video compression insufficient. Final: {final_file_size_mb:.2f}MB, Limit: {server_limit_mb:.2f}MB")
-                return await interaction.followup.send(
-                    f"❌ The resulting video ({final_file_size_mb:.2f}MB) is still too large for this server's limit ({server_limit_mb:.2f}MB) after compression.", 
-                    ephemeral=True
+                return await interaction.edit_original_response(
+                    content=f"❌ The resulting video ({final_file_size_mb:.2f}MB) is still too large for this server's limit ({server_limit_mb:.2f}MB) after compression."
                 )
                 
             file = discord.File(final_file)
             try:
-                await interaction.followup.send(content="✅ Here is your video:", file=file)
+                # Log success history
+                await DatabaseController.log_dl_history(str(interaction.guild_id), str(interaction.user.id), url, "video")
+                
+                # Send the final video out to the public channel (doesn't trigger a "reply")
+                await interaction.channel.send(content=f"✅ {interaction.user.mention} Downloaded a video:", file=file)
+                # Confirm cleanly in the original ephemeral message
+                await interaction.edit_original_response(content="✅ Video uploaded successfully!")
                 logger.info(f"Successfully uploaded video for {url}")
             except discord.errors.HTTPException as e:
                 if e.status == 413:
                     logger.error(f"Discord rejected the file payload (413). Size: {final_file_size_mb:.2f}MB")
-                    await interaction.followup.send(
-                        f"❌ Discord rejected the file (413 Payload Too Large). The compression didn't shrink it enough.\n"
-                        f"Final Size: {final_file_size_mb:.2f}MB | Server Limit: {server_limit_mb:.2f}MB", 
-                        ephemeral=True
+                    await interaction.edit_original_response(
+                        content=f"❌ Discord rejected the file (413 Payload Too Large). The compression didn't shrink it enough.\n"
+                        f"Final Size: {final_file_size_mb:.2f}MB | Server Limit: {server_limit_mb:.2f}MB"
                     )
                 else:
                     raise
@@ -295,10 +387,7 @@ class DLCog(commands.GroupCog, name="dl"):
         except Exception as e:
             err_trace = traceback.format_exc()
             logger.error(f"Unexpected error in dl_video: {err_trace}")
-            await interaction.followup.send(
-                f"❌ An unexpected error occurred while processing:\n```\n{str(e)}\n```", 
-                ephemeral=True
-            )
+            await interaction.edit_original_response(content=f"❌ An unexpected error occurred while processing:\n```\n{str(e)}\n```")
         finally:
             shutil.rmtree(req_dir, ignore_errors=True)
 
@@ -306,7 +395,8 @@ class DLCog(commands.GroupCog, name="dl"):
     @app_commands.describe(url="The URL of the photos to download")
     @app_commands.checks.bot_has_permissions(send_messages=True, attach_files=True)
     async def dl_photos(self, interaction: discord.Interaction, url: str):
-        await interaction.response.defer()
+        # We start by sending a completely ephemeral message so we don't spam the chat with "Bot is thinking"
+        await interaction.response.send_message(f"⏳ Starting background download...", ephemeral=True)
         
         req_id = f"temp_{uuid.uuid4().hex[:12]}"
         req_dir = os.path.join(TEMP_DIR, req_id)
@@ -350,22 +440,40 @@ class DLCog(commands.GroupCog, name="dl"):
                         
             if not downloaded_photos:
                 err_text = "\n".join(error_msgs)[:1800] if error_msgs else "No supported images located after download."
-                return await interaction.followup.send(f"❌ No photos were found or downloaded.\n**Logs:**\n```\n{err_text}\n```", ephemeral=True)
+                return await interaction.edit_original_response(content=f"❌ No photos were found or downloaded.\n**Logs:**\n```\n{err_text}\n```")
                 
+            # Log success history
+            await DatabaseController.log_dl_history(str(interaction.guild_id), str(interaction.user.id), url, "photo")
+
             batch_size = 10
             for i in range(0, len(downloaded_photos), batch_size):
                 batch_files = downloaded_photos[i:i+batch_size]
                 discord_files = [discord.File(f) for f in batch_files]
                 if i == 0:
-                    await interaction.followup.send(content=f"✅ Downloaded {len(downloaded_photos)} photo(s).", files=discord_files)
+                    # Send public channel notification
+                    await interaction.channel.send(content=f"✅ {interaction.user.mention} Downloaded {len(downloaded_photos)} photo(s):", files=discord_files)
+                    # Complete ephemeral
+                    await interaction.edit_original_response(content="✅ Photos uploaded successfully!")
                 else:
                     await interaction.channel.send(files=discord_files)
                 
         except Exception as e:
             logger.error(f"Error serving photos: {e}", exc_info=True)
-            await interaction.followup.send(f"❌ An error occurred: `{str(e)}`", ephemeral=True)
+            await interaction.edit_original_response(content=f"❌ An error occurred: `{str(e)}`")
         finally:
             shutil.rmtree(req_dir, ignore_errors=True)
+
+    @app_commands.command(name="history", description="View a paginated history of all downloaded URLs in the server.")
+    async def dl_history(self, interaction: discord.Interaction):
+        await interaction.response.defer()
+        
+        history = await DatabaseController.get_dl_history(str(interaction.guild_id))
+        
+        if not history:
+            return await interaction.followup.send("No download history found in this server yet.")
+            
+        view = DLHistoryPaginator(history, self.bot)
+        await interaction.followup.send(embed=await view.generate_embed(), view=view)
 
     @app_commands.command(name="cookies", description="Upload a cookies.txt file for yt-dlp/gallery-dl.")
     @app_commands.checks.has_permissions(manage_guild=True)
@@ -381,7 +489,6 @@ class DLCog(commands.GroupCog, name="dl"):
         except Exception as e:
             logger.error(f"Failed to save cookies: {e}", exc_info=True)
             await interaction.followup.send(f"❌ Failed to save cookies: `{str(e)}`", ephemeral=True)
-
 
 async def setup(bot):
     await bot.add_cog(DLCog(bot))

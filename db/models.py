@@ -292,3 +292,12 @@ class RolePlanItem(SQLModel, table=True):
     emoji: Optional[str] = None
     category: Optional[str] = Field(default="General")
     description: Optional[str] = None
+
+class DLHistory(SQLModel, table=True):
+    __tablename__ = "dl_history"
+    id: Optional[int] = Field(default=None, primary_key=True)
+    guild_id: str = Field(index=True)
+    user_id: str
+    url: str
+    timestamp: int
+    media_type: str 

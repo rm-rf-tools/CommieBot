@@ -15,7 +15,7 @@ from .models import (
     TicketStaffRole, Profile, Skill, ProfileSkill, Event, EventAttendance,
     Applicant, FormTemplate, FormQuestion, FormSubmission, FormAnswer,
     ModWatch, ModLogConfig, FocusChannel, GrokReply, UserLastSeen, Movie,
-    RolePlan, RolePlanItem, TrackedWord, WordGroup, TheoryResource, Fact, MovieListItem, MovieList
+    RolePlan, RolePlanItem, TrackedWord, WordGroup, TheoryResource, Fact, MovieListItem, MovieList, DLHistory
 )
 
 class DatabaseController:
@@ -1931,5 +1931,21 @@ class DatabaseController:
     async def get_all_facts(guild_id: str):
         async with AsyncSession(engine) as session:
             stmt = select(Fact).where(Fact.guild_id == guild_id).order_by(Fact.id.asc())
+            result = await session.execute(stmt)
+            return result.scalars().all()
+
+    # --- DL History Methods ---
+    @staticmethod
+    async def log_dl_history(guild_id: str, user_id: str, url: str, media_type: str):
+        async with AsyncSession(engine) as session:
+            now = int(time.time())
+            obj = DLHistory(guild_id=guild_id, user_id=user_id, url=url, timestamp=now, media_type=media_type)
+            session.add(obj)
+            await session.commit()
+
+    @staticmethod
+    async def get_dl_history(guild_id: str):
+        async with AsyncSession(engine) as session:
+            stmt = select(DLHistory).where(DLHistory.guild_id == guild_id).order_by(DLHistory.timestamp.desc())
             result = await session.execute(stmt)
             return result.scalars().all()
