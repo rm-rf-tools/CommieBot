@@ -1,10 +1,10 @@
 """
 filename: cogs/dl.py
-description: Download videos and photos from various platforms using yt-dlp and gallery-dl. Features host-based fallbacks (like instaloader for Instagram) and automatically shrinks videos over 10MB using an FFmpeg subprocess implementation to safely fit within Discord's upload limits.
+description: Download videos and photos from various platforms using yt-dlp and gallery-dl. Features host-based fallbacks (like instaloader for Instagram) and automatically shrinks videos over 10MB using an FFmpeg subprocess implementation to safely fit within Discord's upload limits, optimized for iOS compatibility. Includes detailed error logging and strictly targets 10MB limits.
 Views:
     - None
 Commands:
-    - /dl video <url>: Download a video from a URL. (User)
+    - /dl video <url>: Download a video from a URL. Prioritizes file size and mobile compatibility over raw quality. (User)
     - /dl photos <url>: Download photos from a URL. (User)
     - /dl cookies <file>: Upload a cookies.txt file for yt-dlp/gallery-dl to bypass login walls. (Admin: Manage Guild)
 """
@@ -18,7 +18,11 @@ import shutil
 import uuid
 import yt_dlp
 import re
+import traceback
+import logging
 from urllib.parse import urlparse
+
+logger = logging.getLogger("cogs.dl")
 
 TEMP_DIR = "./data/dl_temp"
 COOKIES_FILE = "./data/cookies.txt"
@@ -41,34 +45,68 @@ async def get_video_duration(file_path: str) -> float:
         proc = await asyncio.create_subprocess_exec(
             *cmd, stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.PIPE
         )
-        stdout, _ = await proc.communicate()
+        stdout, stderr = await proc.communicate()
         if proc.returncode == 0:
             return float(stdout.decode('utf-8').strip())
-    except Exception:
-        pass
+        else:
+            logger.warning(f"ffprobe failed: {stderr.decode('utf-8', errors='replace')}")
+    except Exception as e:
+        logger.error(f"Error getting video duration: {e}")
     return 0.0
 
-async def shrink_video_ffmpeg(input_path: str, output_path: str, target_mb: float = 9.0) -> tuple[bool, str]:
+async def process_video_ffmpeg(input_path: str, output_path: str, target_mb: float = 9.0, shrink: bool = False) -> tuple[bool, str]:
     duration = await get_video_duration(input_path)
+    logger.info(f"Processing video. Target: {target_mb}MB, Duration: {duration}s, Shrink: {shrink}")
     
-    if duration <= 0:
-        cmd = [
-            "ffmpeg", "-y", "-i", input_path,
-            "-c:v", "libx264", "-crf", "28", "-preset", "fast",
-            "-c:a", "aac", "-b:a", "128k", "-f", "mp4", output_path
-        ]
-    else:
-        total_bitrate_kbps = (target_mb * 8192) / duration
-        audio_bitrate = 128
-        video_bitrate = max(100, int(total_bitrate_kbps - audio_bitrate))
+    # Scale to max 720p to save bitrate, ensure dimensions are even (required by x264 iOS)
+    # Enforce profile and format to strictly support all iPhones
+    base_video_opts = [
+        "-vf", "scale='min(1280,iw)':'min(720,ih)':force_original_aspect_ratio=decrease,pad=ceil(iw/2)*2:ceil(ih/2)*2",
+        "-c:v", "libx264", 
+        "-profile:v", "main", 
+        "-pix_fmt", "yuv420p",
+        "-preset", "faster"
+    ]
+    
+    # Ensure faststart is applied for iOS streaming compatibility
+    base_audio_opts = [
+        "-c:a", "aac",
+        "-movflags", "+faststart",
+        "-f", "mp4"
+    ]
+
+    if shrink and duration > 0:
+        # Strict bitrate targeting using 90% margin to prevent overshooting 10MB
+        safe_target_kb = (target_mb * 8192) * 0.90
+        total_bitrate_kbps = safe_target_kb / duration
+        
+        audio_bitrate = 64
+        video_bitrate = max(50, int(total_bitrate_kbps - audio_bitrate))
+        
+        logger.info(f"Calculated Bitrates - Video: {video_bitrate}k, Audio: {audio_bitrate}k")
         
         cmd = [
             "ffmpeg", "-y", "-i", input_path,
-            "-c:v", "libx264", "-b:v", f"{video_bitrate}k",
-            "-maxrate", f"{int(video_bitrate * 1.5)}k", "-bufsize", f"{video_bitrate * 2}k",
-            "-preset", "fast",
-            "-c:a", "aac", "-b:a", f"{audio_bitrate}k",
-            "-f", "mp4", output_path
+            *base_video_opts,
+            "-b:v", f"{video_bitrate}k",
+            "-maxrate", f"{int(video_bitrate * 1.5)}k", 
+            "-bufsize", f"{video_bitrate * 2}k",
+            *base_audio_opts,
+            "-b:a", f"{audio_bitrate}k",
+            output_path
+        ]
+    else:
+        logger.info("Using CRF-based encoding for iOS formatting.")
+        # If it doesn't need to shrink severely, just convert it to standard format with a cap
+        cmd = [
+            "ffmpeg", "-y", "-i", input_path,
+            *base_video_opts,
+            "-crf", "28" if shrink else "24",
+            "-maxrate", "2000k", # cap bitrate to prevent it artificially inflating tiny files
+            "-bufsize", "4000k",
+            *base_audio_opts,
+            "-b:a", "64k" if shrink else "128k",
+            output_path
         ]
         
     try:
@@ -78,9 +116,12 @@ async def shrink_video_ffmpeg(input_path: str, output_path: str, target_mb: floa
         _, stderr = await proc.communicate()
         
         if proc.returncode != 0:
-            return False, stderr.decode('utf-8', errors='replace')
+            err_msg = stderr.decode('utf-8', errors='replace')
+            logger.error(f"FFmpeg compression failed: {err_msg}")
+            return False, err_msg
         return True, ""
     except Exception as e:
+        logger.error(f"Exception during FFmpeg execution: {e}", exc_info=True)
         return False, str(e)
 
 
@@ -100,6 +141,7 @@ class DLCog(commands.GroupCog, name="dl"):
             perms = ", ".join(error.missing_permissions)
             await send(f"❌ **Bot Error:** I am missing permissions to run this: `{perms}`. I need `Attach Files` and `Send Messages`.", ephemeral=True)
         else:
+            logger.error(f"Unhandled app command error: {error}", exc_info=error)
             await send(f"❌ An unexpected error occurred: {error}", ephemeral=True)
 
     async def fallback_instaloader(self, url: str, dest_dir: str) -> tuple[bool, str]:
@@ -109,6 +151,7 @@ class DLCog(commands.GroupCog, name="dl"):
             
         shortcode = match.group(1)
         cmd = ["instaloader", "--quiet", "--dirname-pattern", dest_dir, "--", f"-{shortcode}"]
+        logger.info(f"Triggering instaloader fallback for shortcode: {shortcode}")
         
         try:
             process = await asyncio.create_subprocess_exec(
@@ -119,8 +162,11 @@ class DLCog(commands.GroupCog, name="dl"):
             _, stderr = await process.communicate()
             if process.returncode == 0:
                 return True, ""
-            return False, stderr.decode('utf-8', errors='replace')
+            err_msg = stderr.decode('utf-8', errors='replace')
+            logger.warning(f"Instaloader failed: {err_msg}")
+            return False, err_msg
         except Exception as e:
+            logger.error(f"Instaloader exception: {e}", exc_info=True)
             return False, str(e)
 
     @app_commands.command(name="video", description="Download a video from a URL.")
@@ -132,6 +178,11 @@ class DLCog(commands.GroupCog, name="dl"):
         req_id = f"temp_{uuid.uuid4().hex[:12]}"
         req_dir = os.path.join(TEMP_DIR, req_id)
         os.makedirs(req_dir, exist_ok=True)
+        logger.info(f"Starting video download for {url} in {req_dir}")
+        
+        # Hard limits strictly locking to 10MB to avoid Discord 413 Payload Errors
+        server_limit_mb = 10.0
+        target_compression_mb = 9.0 
         
         ydl_opts = {
             'outtmpl': os.path.join(req_dir, f"{req_id}.%(ext)s"),
@@ -160,9 +211,13 @@ class DLCog(commands.GroupCog, name="dl"):
             if any(f.lower().endswith(('.mp4', '.webm', '.mkv', '.mov')) for f in os.listdir(req_dir)):
                 success = True
             else:
-                error_msgs.append("yt-dlp: No media files were produced in the download directory.")
+                msg = "yt-dlp: No media files were produced in the download directory."
+                error_msgs.append(msg)
+                logger.warning(msg)
         except Exception as e:
-            error_msgs.append(f"yt-dlp error: {str(e)}")
+            msg = f"yt-dlp error: {str(e)}"
+            error_msgs.append(msg)
+            logger.error(msg, exc_info=True)
             
         if not success:
             if host in ['instagram.com', 'instagr.am']:
@@ -187,31 +242,63 @@ class DLCog(commands.GroupCog, name="dl"):
             original_file = media_files[0]
             
             file_size_mb = os.path.getsize(original_file) / (1024 * 1024)
-            final_file = original_file
+            logger.info(f"Original file downloaded: {file_size_mb:.2f}MB")
             
-            if file_size_mb > 10.0:
-                await interaction.followup.send(f"⏳ Video is {file_size_mb:.1f}MB. Compressing to fit under upload limits...", ephemeral=True)
+            # We enforce processing on EVERY video to guarantee iOS streaming compatibility (+faststart & strict h264)
+            needs_shrink = file_size_mb > target_compression_mb
+            
+            if needs_shrink:
+                await interaction.followup.send(f"⏳ Video is {file_size_mb:.1f}MB. Compressing to fit 10.0MB upload limit...", ephemeral=True)
+            else:
+                await interaction.followup.send(f"⏳ Processing video encoding...", ephemeral=True)
                 
-                shrunk_file = os.path.join(req_dir, f"shrunk_{req_id}.mp4")
-                shrink_success, shrink_err = await shrink_video_ffmpeg(original_file, shrunk_file, target_mb=9.0)
+            processed_file = os.path.join(req_dir, f"processed_{req_id}.mp4")
+            shrink_success, shrink_err = await process_video_ffmpeg(original_file, processed_file, target_mb=target_compression_mb, shrink=needs_shrink)
+            
+            if not shrink_success:
+                err_trim = shrink_err[-1800:] if shrink_err else "Unknown FFmpeg error."
+                logger.error(f"Compression failed completely: {err_trim}")
+                return await interaction.followup.send(f"❌ Failed to process the video.\n**FFmpeg Error:**\n```\n{err_trim}\n```", ephemeral=True)
+            
+            if not os.path.exists(processed_file):
+                logger.error("Compression reported success but output file missing.")
+                return await interaction.followup.send("❌ Video compression succeeded but the output file is missing.", ephemeral=True)
                 
-                if not shrink_success:
-                    err_trim = shrink_err[-1800:] if shrink_err else "Unknown FFmpeg error."
-                    return await interaction.followup.send(f"❌ Failed to compress the video.\n**FFmpeg Error:**\n```\n{err_trim}\n```", ephemeral=True)
+            final_file = processed_file
                 
-                if not os.path.exists(shrunk_file):
-                    return await interaction.followup.send("❌ Video compression succeeded but the output file is missing.", ephemeral=True)
-                    
-                final_file = shrunk_file
-                
-            if os.path.getsize(final_file) > 25 * 1024 * 1024:
-                return await interaction.followup.send("❌ The resulting video is still too large for Discord (>25MB) even after compression.", ephemeral=True)
+            # Pre-upload check: Verify we are actually under the strict 10MB server limit
+            final_file_size_mb = os.path.getsize(final_file) / (1024 * 1024)
+            logger.info(f"Final file ready for upload: {final_file_size_mb:.2f}MB")
+
+            if final_file_size_mb >= server_limit_mb:
+                logger.error(f"Video compression insufficient. Final: {final_file_size_mb:.2f}MB, Limit: {server_limit_mb:.2f}MB")
+                return await interaction.followup.send(
+                    f"❌ The resulting video ({final_file_size_mb:.2f}MB) is still too large for this server's limit ({server_limit_mb:.2f}MB) after compression.", 
+                    ephemeral=True
+                )
                 
             file = discord.File(final_file)
-            await interaction.followup.send(content="✅ Here is your video:", file=file)
-            
+            try:
+                await interaction.followup.send(content="✅ Here is your video:", file=file)
+                logger.info(f"Successfully uploaded video for {url}")
+            except discord.errors.HTTPException as e:
+                if e.status == 413:
+                    logger.error(f"Discord rejected the file payload (413). Size: {final_file_size_mb:.2f}MB")
+                    await interaction.followup.send(
+                        f"❌ Discord rejected the file (413 Payload Too Large). The compression didn't shrink it enough.\n"
+                        f"Final Size: {final_file_size_mb:.2f}MB | Server Limit: {server_limit_mb:.2f}MB", 
+                        ephemeral=True
+                    )
+                else:
+                    raise
+
         except Exception as e:
-            await interaction.followup.send(f"❌ An unexpected error occurred while processing: `{str(e)}`", ephemeral=True)
+            err_trace = traceback.format_exc()
+            logger.error(f"Unexpected error in dl_video: {err_trace}")
+            await interaction.followup.send(
+                f"❌ An unexpected error occurred while processing:\n```\n{str(e)}\n```", 
+                ephemeral=True
+            )
         finally:
             shutil.rmtree(req_dir, ignore_errors=True)
 
@@ -246,6 +333,7 @@ class DLCog(commands.GroupCog, name="dl"):
                 error_msgs.append(f"gallery-dl error: {err.decode('utf-8', errors='replace')}")
         except Exception as e:
             error_msgs.append(f"gallery-dl exception: {str(e)}")
+            logger.error(f"gallery-dl execution failed: {e}", exc_info=True)
             
         if not success:
             if host in ['instagram.com', 'instagr.am']:
@@ -274,6 +362,7 @@ class DLCog(commands.GroupCog, name="dl"):
                     await interaction.channel.send(files=discord_files)
                 
         except Exception as e:
+            logger.error(f"Error serving photos: {e}", exc_info=True)
             await interaction.followup.send(f"❌ An error occurred: `{str(e)}`", ephemeral=True)
         finally:
             shutil.rmtree(req_dir, ignore_errors=True)
@@ -287,8 +376,10 @@ class DLCog(commands.GroupCog, name="dl"):
         await interaction.response.defer(ephemeral=True)
         try:
             await file.save(COOKIES_FILE)
+            logger.info(f"Cookies file updated by {interaction.user}")
             await interaction.followup.send("✅ Cookies file successfully updated.", ephemeral=True)
         except Exception as e:
+            logger.error(f"Failed to save cookies: {e}", exc_info=True)
             await interaction.followup.send(f"❌ Failed to save cookies: `{str(e)}`", ephemeral=True)
 
 
