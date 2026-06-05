@@ -3,10 +3,9 @@ FROM python:3.11-slim
 WORKDIR /app
 
 # 1. Install system dependencies
-# - build-essential & python3-dev: Needed to compile InsightFace
-# - libgl1 & libglib2.0-0: REQUIRED for OpenCV (which InsightFace uses) to load dynamically
+# Added libopus0 for native discord voice encoding support
 RUN apt-get update && \
-    apt-get install -y ffmpeg build-essential python3-dev git curl libgl1 libglib2.0-0 && \
+    apt-get install -y ffmpeg build-essential python3-dev git curl libgl1 libglib2.0-0 libopus0 && \
     rm -rf /var/lib/apt/lists/*
 
 # 2. Clone the official FaceFusion repo into the container

@@ -7,3 +7,4 @@ data/
 *.db
 .aider*
 videos/
+static/csv/TMDB_movie_dataset.csv 
