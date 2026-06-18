@@ -368,6 +368,7 @@ class RedditCog(commands.GroupCog, name="reddit"):
         image="The main image to embed in the post",
         theme="Post theme configuration (Default: Dark Mode)",
         text="Optional body text for the post",
+        username="Optional custom username",
         upvotes="Optional specific upvote count",
         comments="Optional specific comment count"
     )
@@ -384,6 +385,7 @@ class RedditCog(commands.GroupCog, name="reddit"):
         image: discord.Attachment, 
         theme: app_commands.Choice[str] = None,
         text: str = None, 
+        username: str = None,
         upvotes: int = None, 
         comments: int = None
     ):
@@ -407,6 +409,7 @@ class RedditCog(commands.GroupCog, name="reddit"):
                 'image': temp_img_path,
                 'theme': theme.value if theme else "dark",
                 'text': text.strip() if text else None,
+                'username': username.strip() if username else None,
                 'upvotes': upvotes,
                 'comments': comments
             }
