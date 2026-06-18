@@ -74,7 +74,7 @@ POST_TEMPLATE = """
             --btn-bg: #eaedef;
         }
         body {
-            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, "Apple Color Emoji", "Segoe UI Emoji", "Segoe UI Symbol", sans-serif;
             background-color: transparent;
             margin: 0;
             padding: 20px;
@@ -205,11 +205,6 @@ POST_TEMPLATE = """
             font-size: 13px;
             font-weight: 600;
             color: var(--text-primary);
-            gap: 6px;
-        }
-        .action-icon {
-            width: 18px; 
-            height: 18px; 
         }
         .icon-filled {
             fill: currentColor;
@@ -266,20 +261,20 @@ POST_TEMPLATE = """
         <!-- Footer Buttons using the provided SVGs -->
         <div class="footer">
             <div class="action-button" style="padding-left: 10px; padding-right: 10px;">
-                <svg class="action-icon" fill="currentColor" icon-name="upvote" viewBox="0 0 20 20" xmlns="http://www.w3.org/2000/svg"><path d="M10 19a3.966 3.966 0 01-3.96-3.962V10.98H2.838a1.731 1.731 0 01-1.605-1.073 1.734 1.734 0 01.377-1.895L9.364.254a.925.925 0 011.272 0l7.754 7.759c.498.499.646 1.242.376 1.894-.27.652-.9 1.073-1.605 1.073h-3.202v4.058A3.965 3.965 0 019.999 19H10zM2.989 9.179H7.84v5.731c0 1.13.81 2.163 1.934 2.278a2.163 2.163 0 002.386-2.15V9.179h4.851L10 2.163 2.989 9.179z"></path></svg>
+                <svg fill="currentColor" height="16" icon-name="upvote" viewBox="0 0 20 20" width="16" xmlns="http://www.w3.org/2000/svg"><path d="M10 19a3.966 3.966 0 01-3.96-3.962V10.98H2.838a1.731 1.731 0 01-1.605-1.073 1.734 1.734 0 01.377-1.895L9.364.254a.925.925 0 011.272 0l7.754 7.759c.498.499.646 1.242.376 1.894-.27.652-.9 1.073-1.605 1.073h-3.202v4.058A3.965 3.965 0 019.999 19H10zM2.989 9.179H7.84v5.731c0 1.13.81 2.163 1.934 2.278a2.163 2.163 0 002.386-2.15V9.179h4.851L10 2.163 2.989 9.179z"></path></svg>
                 <span style="margin: 0 4px;">{{ upvotes }}</span>
-                <svg class="action-icon" fill="currentColor" icon-name="downvote" viewBox="0 0 20 20" xmlns="http://www.w3.org/2000/svg"><path d="M10 1a3.966 3.966 0 013.96 3.962V9.02h3.202c.706 0 1.335.42 1.605 1.073.27.652.122 1.396-.377 1.895l-7.754 7.759a.925.925 0 01-1.272 0l-7.754-7.76a1.734 1.734 0 01-.376-1.894c.27-.652.9-1.073 1.605-1.073h3.202V4.962A3.965 3.965 0 0110 1zm7.01 9.82h-4.85V5.09c0-1.13-.81-2.163-1.934-2.278a2.163 2.163 0 00-2.386 2.15v5.859H2.989l7.01 7.016 7.012-7.016z"></path></svg>
+                <svg fill="currentColor" height="16" icon-name="downvote" viewBox="0 0 20 20" width="16" xmlns="http://www.w3.org/2000/svg"><path d="M10 1a3.966 3.966 0 013.96 3.962V9.02h3.202c.706 0 1.335.42 1.605 1.073.27.652.122 1.396-.377 1.895l-7.754 7.759a.925.925 0 01-1.272 0l-7.754-7.76a1.734 1.734 0 01-.376-1.894c.27-.652.9-1.073 1.605-1.073h3.202V4.962A3.965 3.965 0 0110 1zm7.01 9.82h-4.85V5.09c0-1.13-.81-2.163-1.934-2.278a2.163 2.163 0 00-2.386 2.15v5.859H2.989l7.01 7.016 7.012-7.016z"></path></svg>
             </div>
             <div class="action-button">
-                <svg aria-hidden="true" class="action-icon" fill="currentColor" icon-name="comment" viewBox="0 0 20 20" xmlns="http://www.w3.org/2000/svg"><path d="M10 1a9 9 0 00-9 9c0 1.947.79 3.58 1.935 4.957L.231 17.661A.784.784 0 00.785 19H10a9 9 0 009-9 9 9 0 00-9-9zm0 16.2H6.162c-.994.004-1.907.053-3.045.144l-.076-.188a36.981 36.981 0 002.328-2.087l-1.05-1.263C3.297 12.576 2.8 11.331 2.8 10c0-3.97 3.23-7.2 7.2-7.2s7.2 3.23 7.2 7.2-3.23 7.2-7.2 7.2z"></path></svg>
-                <span>{{ comments }}</span>
+                <svg aria-hidden="true" fill="currentColor" height="16" icon-name="comment" viewBox="0 0 20 20" width="16" xmlns="http://www.w3.org/2000/svg"><path d="M10 1a9 9 0 00-9 9c0 1.947.79 3.58 1.935 4.957L.231 17.661A.784.784 0 00.785 19H10a9 9 0 009-9 9 9 0 00-9-9zm0 16.2H6.162c-.994.004-1.907.053-3.045.144l-.076-.188a36.981 36.981 0 002.328-2.087l-1.05-1.263C3.297 12.576 2.8 11.331 2.8 10c0-3.97 3.23-7.2 7.2-7.2s7.2 3.23 7.2 7.2-3.23 7.2-7.2 7.2z"></path></svg>
+                <span style="margin-left: 6px;">{{ comments }}</span>
             </div>
             <div class="action-button">
-                <svg aria-hidden="true" class="action-icon" fill="currentColor" icon-name="rotate" viewBox="0 0 20 20" xmlns="http://www.w3.org/2000/svg"><path d="M17.895 10a.9.9 0 01-1.8 0c0-2.812-2.286-5.1-5.1-5.1h-2.92l1.363 1.362A.898.898 0 018.8 7.798a.897.897 0 01-.637-.264L5.265 4.636a.898.898 0 010-1.272l2.898-2.9a.897.897 0 011.274 0 .898.898 0 010 1.273L8.074 3.099h2.921c3.806 0 6.9 3.095 6.9 6.9zm-8.891 6.9h2.921l-1.363 1.362a.898.898 0 00.638 1.536.897.897 0 00.636-.264l2.899-2.898a.898.898 0 000-1.272l-2.899-2.898a.897.897 0 00-1.274 0 .898.898 0 000 1.272l1.364 1.362H9.003a5.106 5.106 0 01-5.1-5.1.9.9 0 00-1.8 0c0 3.805 3.096 6.9 6.9 6.9z"></path></svg>
+                <svg aria-hidden="true" fill="currentColor" height="16" icon-name="rotate" viewBox="0 0 20 20" width="16" xmlns="http://www.w3.org/2000/svg"><path d="M17.895 10a.9.9 0 01-1.8 0c0-2.812-2.286-5.1-5.1-5.1h-2.92l1.363 1.362A.898.898 0 018.8 7.798a.897.897 0 01-.637-.264L5.265 4.636a.898.898 0 010-1.272l2.898-2.9a.897.897 0 011.274 0 .898.898 0 010 1.273L8.074 3.099h2.921c3.806 0 6.9 3.095 6.9 6.9zm-8.891 6.9h2.921l-1.363 1.362a.898.898 0 00.638 1.536.897.897 0 00.636-.264l2.899-2.898a.898.898 0 000-1.272l-2.899-2.898a.897.897 0 00-1.274 0 .898.898 0 000 1.272l1.364 1.362H9.003a5.106 5.106 0 01-5.1-5.1.9.9 0 00-1.8 0c0 3.805 3.096 6.9 6.9 6.9z"></path></svg>
             </div>
             <div class="action-button">
-                <svg aria-hidden="true" class="action-icon" fill="currentColor" icon-name="share" viewBox="0 0 20 20" xmlns="http://www.w3.org/2000/svg"><path d="M12.8 17.524l6.89-6.887a.9.9 0 000-1.273L12.8 2.477a1.64 1.64 0 00-1.782-.349 1.64 1.64 0 00-1.014 1.518v2.593C4.054 6.728 1.192 12.075 1 17.376a1.353 1.353 0 00.862 1.32 1.35 1.35 0 001.531-.364l.334-.381c1.705-1.944 3.323-3.791 6.277-4.103v2.509c0 .667.398 1.262 1.014 1.518a1.638 1.638 0 001.783-.349v-.002zm-.994-1.548V12h-.9c-3.969 0-6.162 2.1-8.001 4.161.514-4.011 2.823-8.16 8-8.16h.9V4.024L17.784 10l-5.977 5.976z"></path></svg>
-                <span>Share</span>
+                <svg aria-hidden="true" fill="currentColor" height="16" icon-name="share" viewBox="0 0 20 20" width="16" xmlns="http://www.w3.org/2000/svg"><path d="M12.8 17.524l6.89-6.887a.9.9 0 000-1.273L12.8 2.477a1.64 1.64 0 00-1.782-.349 1.64 1.64 0 00-1.014 1.518v2.593C4.054 6.728 1.192 12.075 1 17.376a1.353 1.353 0 00.862 1.32 1.35 1.35 0 001.531-.364l.334-.381c1.705-1.944 3.323-3.791 6.277-4.103v2.509c0 .667.398 1.262 1.014 1.518a1.638 1.638 0 001.783-.349v-.002zm-.994-1.548V12h-.9c-3.969 0-6.162 2.1-8.001 4.161.514-4.011 2.823-8.16 8-8.16h.9V4.024L17.784 10l-5.977 5.976z"></path></svg>
+                <span style="margin-left: 6px;">Share</span>
             </div>
         </div>
     </div>
