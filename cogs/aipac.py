@@ -66,7 +66,7 @@ class AipacCog(commands.GroupCog, name="aipac"):
     async def aipac_add(self, interaction: discord.Interaction, name: str, photo: discord.Attachment):
         if not photo.content_type or not photo.content_type.startswith('image/'):
             return await interaction.response.send_message("❌ Please upload a valid image file.", ephemeral=True)
-
+        name_title = name.title()
         await interaction.response.defer()
 
         try:
@@ -93,7 +93,7 @@ class AipacCog(commands.GroupCog, name="aipac"):
             save_path = os.path.join(AIPAC_DIR, f"{safe_name}.png")
             img.save(save_path, "PNG")
             
-            await interaction.followup.send(f"✅ Successfully added and cut out **{name.title()}**!")
+            await interaction.followup.send(f"✅ Successfully added and cut out **{name_title}**!")
             
         except Exception as e:
             await interaction.followup.send(f"❌ Failed to process the image: {e}")
@@ -104,9 +104,9 @@ class AipacCog(commands.GroupCog, name="aipac"):
     async def aipac_gen(self, interaction: discord.Interaction, name: str):
         safe_name = name.strip().replace(" ", "_").lower()
         person_path = os.path.join(AIPAC_DIR, f"{safe_name}.png")
-        
+        name_title = name.title()
         if not os.path.exists(person_path):
-            return await interaction.response.send_message(f"❌ Could not find **{name.title()}**. Have you added them with `/aipac add` yet?", ephemeral=True)
+            return await interaction.response.send_message(f"❌ Could not find **{name_title}**. Have you added them with `/aipac add` yet?", ephemeral=True)
 
         await interaction.response.defer()
 
@@ -177,13 +177,14 @@ class AipacCog(commands.GroupCog, name="aipac"):
     async def aipac_delete(self, interaction: discord.Interaction, name: str):
         safe_name = name.strip().replace(" ", "_").lower()
         person_path = os.path.join(AIPAC_DIR, f"{safe_name}.png")
+        name_title = name.title()
         
         if not os.path.exists(person_path):
-            return await interaction.response.send_message(f"❌ Could not find **{name.title()}** in the roster.", ephemeral=True)
+            return await interaction.response.send_message(f"❌ Could not find **{name_title}** in the roster.", ephemeral=True)
 
         try:
             os.remove(person_path)
-            await interaction.response.send_message(f"🗑️ Successfully removed **{name.title()}** from the AIPAC roster.")
+            await interaction.response.send_message(f"🗑️ Successfully removed **{name_title}** from the AIPAC roster.")
         except Exception as e:
             await interaction.response.send_message(f"❌ Failed to delete image: {e}", ephemeral=True)
 

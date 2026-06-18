@@ -122,14 +122,16 @@ class FactsCog(commands.GroupCog, name="facts"):
     @set_group.command(name="role", description="Set the role allowed to edit facts and choose the channel.")
     @app_commands.checks.has_permissions(manage_guild=True)
     async def set_role(self, interaction: discord.Interaction, role: discord.Role):
+        role_mentioned = role.mention
         await DatabaseController.set_facts_role(str(interaction.guild_id), str(role.id))
-        await interaction.response.send_message(f"✅ Facts management role set to {role.mention}.", ephemeral=True)
+        await interaction.response.send_message(f"✅ Facts management role set to {role_mentioned}.", ephemeral=True)
 
     @set_group.command(name="channel", description="Set the channel where facts will be spawned.")
     @app_commands.checks.has_permissions(manage_guild=True)
     async def set_channel(self, interaction: discord.Interaction, channel: discord.TextChannel):
         await DatabaseController.set_facts_channel(str(interaction.guild_id), str(channel.id))
-        await interaction.response.send_message(f"✅ Facts channel set to {channel.mention}.", ephemeral=True)
+        channel_mention = channel.mention
+        await interaction.response.send_message(f"✅ Facts channel set to {channel_mention}.", ephemeral=True)
 
     @list_group.command(name="export", description="Export all facts in the server to a CSV file.")
     async def list_export(self, interaction: discord.Interaction):

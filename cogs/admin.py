@@ -264,7 +264,9 @@ class AdminCommands(commands.Cog):
             
         try:
             deleted = await interaction.channel.purge(limit=scan_limit, check=lambda m: m.is_system())
-            await interaction.followup.send(f"✅ Scanned and cleared {len(deleted)} system messages from {interaction.channel.mention}.", ephemeral=True)
+            len_deleted = len(deleted)
+            channel_mention = interaction.channel.mention
+            await interaction.followup.send(f"✅ Scanned and cleared {len_deleted} system messages from {channel_mention}.", ephemeral=True)
         except discord.Forbidden:
             await interaction.followup.send("❌ I do not have permission to manage messages in this channel.", ephemeral=True)
 
@@ -297,9 +299,10 @@ class AdminCommands(commands.Cog):
             c for c in interaction.guild.channels 
             if isinstance(c, (discord.TextChannel, discord.VoiceChannel, discord.StageChannel, discord.Thread))
         ]
-
+        len_target_ids = len(target_ids)
+        len_channels_to_scan = len(channels_to_scan)
         await interaction.followup.send(
-            f"⏳ **Starting media purge for {len(target_ids)} user(s).**\n*Scanning {len(channels_to_scan)} channel(s)...*", 
+            f"⏳ **Starting media purge for {len_target_ids} user(s).**\n*Scanning {len_channels_to_scan} channel(s)...*", 
             ephemeral=True
         )
 
@@ -358,8 +361,9 @@ class AdminCommands(commands.Cog):
     @autorole_group.command(name="set", description="Assign a default role to be applied automatically to new members.")
     @app_commands.checks.has_permissions(manage_roles=True)
     async def autorole_set(self, interaction: discord.Interaction, role: discord.Role):
+        role_mentioned = role.mention
         await DatabaseController.set_autorole(str(interaction.guild_id), str(role.id))
-        await interaction.response.send_message(f"✅ Autorole has been set to {role.mention}. Enable it with `/autorole toggle` if you haven't!", ephemeral=True)
+        await interaction.response.send_message(f"✅ Autorole has been set to {role_mentioned}. Enable it with `/autorole toggle` if you haven't!", ephemeral=True)
 
     @autorole_group.command(name="toggle", description="Enable or disable the autorole feature.")
     @app_commands.checks.has_permissions(manage_roles=True)

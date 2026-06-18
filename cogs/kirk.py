@@ -314,7 +314,7 @@ class KirkifyCog(commands.GroupCog, name="kirkify"):
 
         except Exception as e:
             logger.exception(f"[{req_id}] Unhandled Exception during kirkify_media:")
-            await self.send_or_fallback(interaction, status_message, f"❌ An unexpected error occurred: `{str(e)}`")
+            await self.send_or_fallback(interaction, status_message, f"❌ An unexpected error occurred: `{e}`")
         finally:
             logger.info(f"[{req_id}] Cleaning up temporary files...")
             for p in [target_path, output_path, shrunk_path]:

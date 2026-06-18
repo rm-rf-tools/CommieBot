@@ -58,7 +58,8 @@ class TheoryEditModal(discord.ui.Modal):
             await self.view_to_refresh.refresh_data()
             await interaction.response.edit_message(embed=self.view_to_refresh.generate_embed(), view=self.view_to_refresh)
         else:
-            await interaction.response.send_message(f"✅ Updated **{self.r_title.value}**", ephemeral=True)
+            titleval = self.r_title.value
+            await interaction.response.send_message(f"✅ Updated **{titleval}**", ephemeral=True)
 
 class TheoryPaginator(discord.ui.View):
     def __init__(self, resources: list, search_ctx: str = ""):

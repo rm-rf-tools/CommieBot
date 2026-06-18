@@ -28,27 +28,27 @@
         },
         "edit_original_response": {
             "AUDIOREADYCONNECTING": "⏳ Audio ready! Connecting to voice channel...",
-            "ADDEDTOQUEUETRACKINF": "✅ Added to queue: **{track_info['title']}**",
+            "ADDEDTOQUEUETRACKINF": "✅ Added to queue: **{track_title}**",
             "ADDEDTOQUEUETESTAUDI": "✅ Added to queue: **Test Audio**",
-            "FAILEDTODOWNLOADORPR": "❌ Failed to download or process the URL:\\n```\\n{str(e)}\\n```",
+            "FAILEDTODOWNLOADORPR": "❌ Failed to download or process the URL:\\n```\\n{e}\\n```",
             "FAILEDTOCONNECTTOVOI": "❌ Failed to connect to voice channel. (If using Docker, ensure UDP ports are open!)\\n```\\n{e}\\n```",
-            "NOWPLAYINGTRACKINFOT": "🎶 Now playing: **{track_info['title']}**",
+            "NOWPLAYINGTRACKINFOT": "🎶 Now playing: **{track_title}**",
             "FAILEDTOCONNECTTOVOI_1": "❌ Failed to connect to voice:\\n```\\n{e}\\n```",
             "NOWPLAYINGTESTAUDIO": "🎶 Now playing: **Test Audio**",
-            "FAILEDTOBEGINPLAYBAC": "❌ Failed to begin playback:\\n```\\n{str(e)}\\n```",
+            "FAILEDTOBEGINPLAYBAC": "❌ Failed to begin playback:\\n```\\n{e}\\n```",
             "PLAYBACKFAILEDNNEN": "❌ Playback failed:\\n```\\n{e}\\n```"
         },
         "send": {
             "PERMISSIONDENIEDYOUN": "❌ **Permission Denied:** You need specific permissions to run this command.",
-            "SUCCESSFULLYLOADEDLE": "✅ Successfully loaded **{len(loaded_q)}** tracks into the queue.\\nUse `/music queue` to view it!",
+            "SUCCESSFULLYLOADEDLE": "✅ Successfully loaded **{len_loaded_q}** tracks into the queue.\\nUse `/music queue` to view it!",
             "BOTERRORIAMMISSINGPE": "❌ **Bot Error:** I am missing permissions to run this: `{perms}`. I need `Connect` and `Speak`.",
             "ANUNEXPECTEDERROROCC": "❌ An unexpected error occurred: {error}",
-            "FAILEDTOPARSEORLOADT": "❌ Failed to parse or load the queue:\\n```\\n{str(e)}\\n```"
+            "FAILEDTOPARSEORLOADT": "❌ Failed to parse or load the queue:\\n```\\n{e}\\n```"
         }
     },
     "focus.py": {
         "send_message": {
-            "FOCUSROLESETTOROLEME": "✅ Focus role set to {role.mention}.",
+            "FOCUSROLESETTOROLEME": "✅ Focus role set to {role_mentioned}.",
             "FOCUSROLECONFIGURATI": "✅ Focus role configuration removed.",
             "FOCUSMODEHASNOTBEENC": "❌ Focus Mode has not been configured by an admin yet.",
             "THECONFIGUREDFOCUSRO": "❌ The configured Focus Role could not be found. Let a moderator know.",
@@ -69,7 +69,7 @@
         "send_message": {
             "MUSTBEUSEDINASERVER": "❌ Must be used in a server.",
             "YOUNEEDTOBEINAVOICEC": "❌ You need to be in a voice channel or stage to take attendance!",
-            "NOHUMANSFOUNDINVOICE": "❌ No humans found in {voice_channel.mention}!"
+            "NOHUMANSFOUNDINVOICE": "❌ No humans found in {vc_mention}!"
         },
         "send": {
             "ANERROROCCURREDWHILE": "❌ An error occurred while logging attendance: {e}"
@@ -77,7 +77,7 @@
     },
     "kirk.py": {
         "send": {
-            "PROCESSINGMEDIATHISM": "⏳ **Processing media...**\n*(This may take a while for videos. Check your developer terminal logs to see real-time progress!)*",
+            "PROCESSINGMEDIATHISM": "⏳ **Processing media...**\n**",
             "EXPORTGENERATED": "✅ Export generated.",
             "PERMISSIONDENIEDYOUN": "❌ **Permission Denied:** You need specific permissions to run this command.",
             "ANUNEXPECTEDERROROCC": "❌ An unexpected error occurred: {error}",
@@ -96,7 +96,7 @@
     },
     "videomaker.py": {
         "send": {
-            "FAILEDTOGENERATEVIDE": "❌ Failed to generate video: {str(e)}"
+            "FAILEDTOGENERATEVIDE": "❌ Failed to generate video: {e}"
         }
     },
     "grok.py": {
@@ -117,7 +117,7 @@
     "roles.py": {
         "send_message": {
             "CREATEDEMPTYPLANPLAN": "✅ Created empty plan **{plan_name}**. Use `/roles plan manage` to add roles to it!",
-            "EXPORTEDPLANNAME": "✅ Exported **{plan.name}**",
+            "EXPORTEDPLANNAME": "✅ Exported **{plan_name}**",
             "DELETEDROLEPLANPLANN": "🗑️ Deleted Role Plan **{plan_name}**. All configuration items wiped.",
             "APLANNAMEDPLANNAMEAL": "❌ A plan named **{plan_name}** already exists.",
             "PLANPLANNAMENOTFOUND": "❌ Plan **{plan_name}** not found.",
@@ -125,13 +125,13 @@
             "PLANNOTFOUND": "❌ Plan not found.",
             "THISROLENOLONGEREXIS": "❌ This role no longer exists in the server.",
             "MYBOTROLEISBENEATHTH": "❌ My bot role is beneath this role! An Admin needs to drag my role higher up the list in server settings.",
-            "REMOVEDROLENAME": "➖ Removed **{role.name}**",
-            "ADDEDROLENAME": "➕ Added **{role.name}**",
+            "REMOVEDROLENAME": "➖ Removed **{plan_name}**",
+            "ADDEDROLENAME": "➕ Added **{role_name}**",
             "IDONOTHAVEPERMISSION": "❌ I do not have permission to manage roles. Please contact an admin."
         },
         "send": {
             "VACUUMEDUPCOUNTGHOST": "🧹 Vacuumed up **{count} ghost roles** from the database that had no valid plan assigned. Your deployments should now be fixed!",
-            "SUCCESSFULLYDEPLOYED": "✅ Successfully deployed **{plan_name}** to {channel.mention}.",
+            "SUCCESSFULLYDEPLOYED": "✅ Successfully deployed **{plan_name}** to {channel_mention}.",
             "PERMISSIONDENIEDYOUN": "❌ **Permission Denied:** You need `{perms}` to use this command.",
             "SUCCESSFULLYIMPORTED": "✅ Successfully imported **{plan_name}** with {count} roles!",
             "ROLEPLANPLANNAMENOTF": "❌ Role plan **{plan_name}** not found.",
@@ -155,32 +155,32 @@
             "COOKIESFILESUCCESSFU": "✅ Cookies file successfully updated.",
             "BOTERRORIAMMISSINGPE": "❌ **Bot Error:** I am missing permissions to run this: `{perms}`. I need `Attach Files` and `Send Messages`.",
             "ANUNEXPECTEDERROROCC": "❌ An unexpected error occurred: {error}",
-            "INTERACTIONUSERMENTI": "✅ {interaction.user.mention} Downloaded a video:",
-            "FAILEDTOSAVECOOKIESS": "❌ Failed to save cookies: `{str(e)}`",
-            "INTERACTIONUSERMENTI_1": "✅ {interaction.user.mention} Downloaded {len(downloaded_photos)} photo(s):"
+            "INTERACTIONUSERMENTI": "✅ {user_mention} Downloaded a video:",
+            "FAILEDTOSAVECOOKIESS": "❌ Failed to save cookies: `{e}`",
+            "INTERACTIONUSERMENTI_1": "✅ {user+mention} Downloaded {len_downloaded_photos} photo(s):"
         },
         "edit_original_response": {
             "FAILEDTODOWNLOADTHEV": "❌ Failed to download the video.\\n**Logs:**\\n```\\n{err_text}\\n```",
             "NOVALIDVIDEOFILEFOUN": "❌ No valid video file found after a successful download execution.",
-            "VIDEOISFILESIZEMB1FM": "⏳ Video is {file_size_mb:.1f}MB. Compressing to fit 10.0MB upload limit...",
+            "VIDEOISFILESIZEMB1FM": "⏳ Video is {file_size_mb}MB. Compressing to fit 10.0MB upload limit...",
             "PROCESSINGVIDEOENCOD": "⏳ Processing video encoding...",
             "FAILEDTOPROCESSTHEVI": "❌ Failed to process the video.\\n**FFmpeg Error:**\\n```\\n{err_trim}\\n```",
             "VIDEOCOMPRESSIONSUCC": "❌ Video compression succeeded but the output file is missing.",
-            "THERESULTINGVIDEOFIN": "❌ The resulting video ({final_file_size_mb:.2f}MB) is still too large for this server's limit ({server_limit_mb:.2f}MB) after compression.",
+            "THERESULTINGVIDEOFIN": "❌ The resulting video ({final_file_size_mb}MB) is still too large for this server's limit ({server_limit_mb}MB) after compression.",
             "VIDEOUPLOADEDSUCCESS": "✅ Video uploaded successfully!",
-            "ANUNEXPECTEDERROROCC": "❌ An unexpected error occurred while processing:\\n```\\n{str(e)}\\n```",
+            "ANUNEXPECTEDERROROCC": "❌ An unexpected error occurred while processing:\\n```\\n{e}\\n```",
             "NOPHOTOSWEREFOUNDORD": "❌ No photos were found or downloaded.\\n**Logs:**\\n```\\n{err_text}\\n```",
-            "ANERROROCCURREDSTRE": "❌ An error occurred: `{str(e)}`",
+            "ANERROROCCURREDSTRE": "❌ An error occurred: `{e}`",
             "PHOTOSUPLOADEDSUCCES": "✅ Photos uploaded successfully!",
-            "DISCORDREJECTEDTHEFI": "❌ Discord rejected the file (413 Payload Too Large). The compression didn't shrink it enough.\\nFinal Size: {final_file_size_mb:.2f}MB | Server Limit: {server_limit_mb:.2f}MB"
+            "DISCORDREJECTEDTHEFI": "❌ Discord rejected the file (413 Payload Too Large). The compression didn't shrink it enough.\\nFinal Size: {final_file_size_mb}MB | Server Limit: {server_limit_mb}MB"
         }
     },
     "admin.py": {
         "send": {
             "STICKYMESSAGEESTABLI": "✅ Sticky message established!",
-            "STARTINGMEDIAPURGEFO": "⏳ **Starting media purge for {len(target_ids)} user(s).**\\n*Scanning {len(channels_to_scan)} channel(s)...*",
+            "STARTINGMEDIAPURGEFO": "⏳ **Starting media purge for {len_target_ids} user(s)**\\n*Scanning {len_channels_to_scan} channel(s)...*",
             "NOTEATTACHMENTSARENO": "⚠️ Note: Attachments are not supported for sticky messages and have been ignored.",
-            "SCANNEDANDCLEAREDLEN": "✅ Scanned and cleared {len(deleted)} system messages from {interaction.channel.mention}.",
+            "SCANNEDANDCLEAREDLEN": "✅ Scanned and cleared {len_deleted} system messages from {channel_mention}.",
             "NOVALIDUSERIDSPROVID": "❌ No valid User IDs provided.",
             "MEDIAPURGECOMPLETEND": "✅ **Media Purge Complete!**\\nDeleted a total of **{total_deleted}** media messages.",
             "COULDNOTFINDAMESSAGE": "❌ Could not find a message with that ID in this channel.",
@@ -190,7 +190,7 @@
         },
         "send_message": {
             "STICKYMESSAGEREMOVED": "✅ Sticky message removed.",
-            "AUTOROLEHASBEENSETTO": "✅ Autorole has been set to {role.mention}. Enable it with `/autorole toggle` if you haven't!",
+            "AUTOROLEHASBEENSETTO": "✅ Autorole has been set to {role_mentioned}. Enable it with `/autorole toggle` if you haven't!",
             "AUTOROLEFEATUREISNOW": "✅ Autorole feature is now **{state}**.",
             "PERMISSIONDENIEDYOUN": "❌ **Permission Denied:** You need `{perms}` permissions to use this command.",
             "THEREISNOSTICKYMESSA": "❌ There is no sticky message in this channel.",
@@ -201,24 +201,24 @@
     },
     "crp.py": {
         "send_message": {
-            "CRPMANAGEMENTROLESET": "✅ CRP Management role set to {role.mention}."
+            "CRPMANAGEMENTROLESET": "✅ CRP Management role set to {role_mentioned}."
         },
         "send": {
             "CREATEDTHENAMECOMMIT": "✅ Created the **{name}** committee!",
             "RENAMEDOLDNAMETONEWN": "✅ Renamed **{old_name}** to **{new_name}**.",
             "DELETEDNAME": "🗑️ Deleted **{name}**.",
-            "ASSIGNEDTARGETMENTIO": "✅ Assigned {target.mention} as **{role.name}** ({final_name}).",
-            "YOINKEDROLENAMEFROMT": "✅ Yoinked **{role.name}** from {target.mention}.",
+            "ASSIGNEDTARGETMENTIO": "✅ Assigned {target_mention} as **{role_name}** ({final_name}).",
+            "YOINKEDROLENAMEFROMT": "✅ Yoinked **{role_name}** from {target_mention}.",
             "ACOMMITTEENAMEDNAMEA": "⚠️ A committee named **{name}** already exists!",
             "COMMITTEENOTFOUND": "❌ Committee not found.",
             "NOCOMMITTEESFOUND": "🔍 No committees found.",
-            "TARGETDISPLAYNAMEHAS": "🔍 {target.display_name} has no roles.",
+            "TARGETDISPLAYNAMEHAS": "🔍 {target_display_name} has no roles.",
             "NOMEMBERSINCOMMITTEE": "🔍 No members in **{committee_name}**.",
             "ORGISEMPTY": "🔍 Org is empty.",
-            "ROLEROLENAMEREQUIRES": "❌ Role **{role.name}** requires a committee!",
+            "ROLEROLENAMEREQUIRES": "❌ Role **{role_name}** requires a committee!",
             "COMMITTEECOMMITTEENA": "❌ Committee **{committee_name}** does not exist.",
-            "ROLENAMEISAGLOBALROL": "ℹ️ **{role.name}** is a Global role. Leave committee blank.",
-            "EERRORS0MSG": "⚠️ {e.errors()[0]['msg']}"
+            "ROLENAMEISAGLOBALROL": "ℹ️ **{role_name}** is a Global role. Leave committee blank.",
+            "EERRORS0MSG": "⚠️ {error}"
         }
     },
     "facts.py": {
@@ -228,7 +228,7 @@
             "SUCCESSFULLYSEEDEDCO": "✅ Successfully seeded {count} facts into the database.",
             "PERMISSIONDENIEDYOUN": "❌ **Permission Denied:** You need specific permissions to run this command.",
             "NOFACTSFOUNDINTHEDAT": "❌ No facts found in the database. Use `/facts add` or `/facts seed`.",
-            "SPAWNEDAFACTINCHANNE": "✅ Spawned a fact in {channel.mention}.",
+            "SPAWNEDAFACTINCHANNE": "✅ Spawned a fact in {channel_mention}.",
             "FACTDELETEDSUCCESSFU": "✅ Fact deleted successfully.",
             "FACTNOTFOUND": "❌ Fact not found.",
             "NOFACTSFOUNDTOEXPORT": "No facts found to export.",
@@ -238,8 +238,8 @@
             "INVALIDFACTSELECTED": "❌ Invalid fact selected."
         },
         "send_message": {
-            "FACTSMANAGEMENTROLES": "✅ Facts management role set to {role.mention}.",
-            "FACTSCHANNELSETTOCHA": "✅ Facts channel set to {channel.mention}."
+            "FACTSMANAGEMENTROLES": "✅ Facts management role set to {role_mentioned}.",
+            "FACTSCHANNELSETTOCHA": "✅ Facts channel set to {channel_mention}."
         }
     },
     "ml_resources.py": {
@@ -247,7 +247,7 @@
             "RUNNINGDEADLINKSCANP": "🔍 Running deadlink scan... please wait.",
             "DELETEDRESOURCE": "🗑️ Deleted resource.",
             "LIBRARYCLEARED": "💣 Library cleared.",
-            "UPDATEDSELFRTITLEVAL": "✅ Updated **{self.r_title.value}**",
+            "UPDATEDSELFRTITLEVAL": "✅ Updated **{titleval}**",
             "NODEADLINKSFOUNDRUNT": "✅ No dead links found! Run `/theory admin deadlinks` if you haven't recently.",
             "RESOURCENOTFOUND": "❌ Resource not found."
         },
@@ -262,14 +262,14 @@
     },
     "forms.py": {
         "send_message": {
-            "USERSWITHTHEROLEMENT": "✅ Users with the {role.mention} role can now manage forms.",
+            "USERSWITHTHEROLEMENT": "✅ Users with the {role_mentioned} role can now manage forms.",
             "FORMNAMECREATEDVIACO": "✅ Form **{name}** created via command.",
-            "ADDEDQTYPENAMEQUESTI": "✅ Added {q_type.name} question to **{form.name}**.",
-            "DELETEDFORMNAME": "🗑️ Deleted **{form.name}**.",
+            "ADDEDQTYPENAMEQUESTI": "✅ Added {q_type_name} question to **{form_name}**.",
+            "DELETEDFORMNAME": "🗑️ Deleted **{form_name}**.",
             "FORMFORMNAMENOTFOUND": "❌ Form '{form_name}' not found.",
             "THISFORMHASNOQUESTIO": "❌ This form has no questions and isn't ready.",
             "FORMNOTFOUND": "❌ Form not found.",
-            "YOUHAVEAPPLIEDRECENT": "⏳ You have applied recently! There is a {form.cooldown_days} day cooldown."
+            "YOUHAVEAPPLIEDRECENT": "⏳ You have applied recently! There is a {form_cooldown_days} day cooldown."
         }
     },
     "clone.py": {
@@ -291,13 +291,13 @@
     "aipac.py": {
         "send_message": {
             "PLEASEUPLOADAVALIDIM": "❌ Please upload a valid image file.",
-            "COULDNOTFINDNAMETITL": "❌ Could not find **{name.title()}**. Have you added them with `/aipac add` yet?",
-            "COULDNOTFINDNAMETITL_1": "❌ Could not find **{name.title()}** in the roster.",
-            "SUCCESSFULLYREMOVEDN": "🗑️ Successfully removed **{name.title()}** from the AIPAC roster.",
+            "COULDNOTFINDNAMETITL": "❌ Could not find **{name_title}**. Have you added them with `/aipac add` yet?",
+            "COULDNOTFINDNAMETITL_1": "❌ Could not find **{name_title}** in the roster.",
+            "SUCCESSFULLYREMOVEDN": "🗑️ Successfully removed **{name_title}** from the AIPAC roster.",
             "FAILEDTODELETEIMAGEE": "❌ Failed to delete image: {e}"
         },
         "send": {
-            "SUCCESSFULLYADDEDAND": "✅ Successfully added and cut out **{name.title()}**!",
+            "SUCCESSFULLYADDEDAND": "✅ Successfully added and cut out **{name_title}**!",
             "FAILEDTOPROCESSTHEIM": "❌ Failed to process the image: {e}",
             "FAILEDTOGENERATEGRAP": "❌ Failed to generate graphic: {e}"
         }
@@ -342,7 +342,7 @@
     "mutual_aid.py": {
         "send_message": {
             "LOGGEDAMOUNT2FFORAID": "✅ Logged ${amount:.2f} for **{aid_name}**.",
-            "SETTOROLEMENTION": "✅ Set to {role.mention}",
+            "SETTOROLEMENTION": "✅ Set to {role_mentioned}",
             "AMOUNTMUSTBEGREATERT": "❌ Amount must be greater than 0.",
             "NOVALIDACTIVEAIDREQU": "❌ No valid active aid request found named `{self.aid_name}`.",
             "GOALALREADYREACHEDLO": "✅ Goal already reached. Logged ${amount:.2f} to <@{target_user_id}>.",
@@ -406,8 +406,8 @@
         },
         "send_message": {
             "TICKETBUTTONGENERATE": "✅ Ticket button generated successfully.",
-            "ADDEDROLEMENTIONTOTI": "✅ Added {role.mention} to ticket staff.",
-            "REMOVEDROLEMENTIONFR": "✅ Removed {role.mention} from ticket staff.",
+            "ADDEDROLEMENTIONTOTI": "✅ Added {role_mentioned} to ticket staff.",
+            "REMOVEDROLEMENTIONFR": "✅ Removed {role_mentioned} from ticket staff.",
             "USERMENTIONADDED": "✅ {user.mention} added.",
             "ADDEDUSERMENTIONTOTH": "✅ Added {user.mention} to the watch list.\\n**Reason:** {reason}",
             "PERMISSIONSDENIED": "❌ Permissions denied.",

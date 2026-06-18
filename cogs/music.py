@@ -223,9 +223,10 @@ class MusicCog(commands.GroupCog, name="music"):
         # STEP 1: Download the audio BEFORE joining VC to prevent 4006 socket timeout errors
         try:
             track_info = await self.dl_audio(url)
+            track_title = track_info['title']
         except Exception as e:
             logger.error(f"Failed to process URL {url}: {e}", exc_info=True)
-            return await interaction.edit_original_response(content=f"❌ Failed to download or process the URL:\n```\n{str(e)}\n```")
+            return await interaction.edit_original_response(content=f"❌ Failed to download or process the URL:\n```\n{e}\n```")
             
         await interaction.edit_original_response(content="⏳ Audio ready! Connecting to voice channel...")
         
@@ -254,7 +255,7 @@ class MusicCog(commands.GroupCog, name="music"):
             if interaction.guild.id not in self.queues:
                 self.queues[interaction.guild.id] = []
             self.queues[interaction.guild.id].append(track_info)
-            await interaction.edit_original_response(content=f"✅ Added to queue: **{track_info['title']}**")
+            await interaction.edit_original_response(content=f"✅ Added to queue: **{track_title}**")
         else:
             self.current[interaction.guild.id] = track_info
             try:
@@ -262,10 +263,11 @@ class MusicCog(commands.GroupCog, name="music"):
                     raise Exception("Voice client disconnected unexpectedly right before playback.")
                 audio = discord.FFmpegPCMAudio(track_info['file'])
                 vc.play(audio, after=lambda e: self.bot.loop.call_soon_threadsafe(self.play_next, interaction.guild, vc))
-                await interaction.edit_original_response(content=f"🎶 Now playing: **{track_info['title']}**")
+                
+                await interaction.edit_original_response(content=f"🎶 Now playing: **{track_title}**")
             except Exception as e:
                 logger.error(f"Failed to play audio: {e}", exc_info=True)
-                await interaction.edit_original_response(content=f"❌ Failed to begin playback:\n```\n{str(e)}\n```")
+                await interaction.edit_original_response(content=f"❌ Failed to begin playback:\n```\n{e}\n```")
 
     @app_commands.command(name="test", description="Play a local test.mp3 file to verify voice connectivity.")
     async def test_audio(self, interaction: discord.Interaction):
@@ -405,9 +407,10 @@ class MusicCog(commands.GroupCog, name="music"):
                 self.queues[interaction.guild.id] = []
                 
             self.queues[interaction.guild.id].extend(loaded_q)
-            await interaction.followup.send(f"✅ Successfully loaded **{len(loaded_q)}** tracks into the queue.\nUse `/music queue` to view it!")
+            len_loaded_q = len(loaded_q)
+            await interaction.followup.send(f"✅ Successfully loaded **{len_loaded_q}** tracks into the queue.\nUse `/music queue` to view it!")
         except Exception as e:
-            await interaction.followup.send(f"❌ Failed to parse or load the queue:\n```\n{str(e)}\n```", ephemeral=True)
+            await interaction.followup.send(f"❌ Failed to parse or load the queue:\n```\n{e}\n```", ephemeral=True)
 
 
 async def setup(bot):

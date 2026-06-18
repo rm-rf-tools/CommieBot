@@ -398,8 +398,9 @@ class MutualAidCommands(commands.GroupCog, name="aid"):
     @role_group.command(name="set")
     @app_commands.checks.has_permissions(manage_guild=True)
     async def role_set(self, i: discord.Interaction, role: discord.Role):
+        role_mentioned = role.mention
         await DatabaseController.set_role(str(i.guild_id), str(role.id))
-        await i.response.send_message(f"✅ Set to {role.mention}", ephemeral=True)
+        await i.response.send_message(f"✅ Set to {role_mentioned}", ephemeral=True)
 
 async def setup(bot):
     bot.add_view(ContributionView())

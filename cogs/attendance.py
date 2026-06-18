@@ -27,13 +27,13 @@ class AttendanceCog(commands.Cog, name="attendance"):
             return await interaction.response.send_message("❌ You need to be in a voice channel or stage to take attendance!", ephemeral=True)
 
         voice_channel = interaction.user.voice.channel
-        
+        vc_mention = voice_channel.mention
         # We don't need to connect. We can just sweep the 'members' property.
         # This prevents the WebSocket 4006 error and is instantaneous.
         attendees = [m for m in voice_channel.members if not m.bot]
 
         if not attendees:
-            return await interaction.response.send_message(f"❌ No humans found in {voice_channel.mention}!", ephemeral=True)
+            return await interaction.response.send_message(f"❌ No humans found in {vc_mention}!", ephemeral=True)
 
         # Defer because database operations might take a second
         await interaction.response.defer()

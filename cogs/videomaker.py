@@ -163,7 +163,7 @@ class VideoMaker(commands.Cog):
             await interaction.followup.send(file=file)
 
         except Exception as e:
-            await interaction.followup.send(f"❌ Failed to generate video: {str(e)}")
+            await interaction.followup.send(f"❌ Failed to generate video: {e}")
             
         finally:
             

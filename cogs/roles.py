@@ -297,7 +297,7 @@ class RolesCog(commands.GroupCog, name="roles"):
 
         json_string = json.dumps(export_data, indent=2)
         file = discord.File(fp=io.BytesIO(json_string.encode('utf-8')), filename=f"{plan.name.replace(' ', '_')}.json")
-        await interaction.response.send_message(f"✅ Exported **{plan.name}**", file=file, ephemeral=True)
+        await interaction.response.send_message(f"✅ Exported **{plan_name}**", file=file, ephemeral=True)
 
     @plan_group.command(name="delete", description="Delete an entire Role Plan from the database.")
     @app_commands.autocomplete(plan_name=plan_autocomplete)
@@ -331,7 +331,7 @@ class RolesCog(commands.GroupCog, name="roles"):
     async def deploy_roles(self, interaction: discord.Interaction, plan_name: str, target_channel: discord.TextChannel = None, clear_previous: bool = False):
         channel = target_channel or interaction.channel
         guild = interaction.guild
-
+        channel_mention = channel.mention
         await interaction.response.defer(ephemeral=True)
 
         # 1. Sweep the channel for old React Role messages and delete them
@@ -428,7 +428,7 @@ class RolesCog(commands.GroupCog, name="roles"):
 
                 await channel.send(embed=embed, view=view)
 
-        await interaction.followup.send(f"✅ Successfully deployed **{plan_name}** to {channel.mention}.")
+        await interaction.followup.send(f"✅ Successfully deployed **{plan_name}** to {channel_mention}.")
 
 
     # --- GLOBAL BUTTON LISTENER ---
@@ -455,12 +455,13 @@ class RolesCog(commands.GroupCog, name="roles"):
                 return await interaction.response.send_message("❌ My bot role is beneath this role! An Admin needs to drag my role higher up the list in server settings.", ephemeral=True)
 
             try:
+                role_name = role.name
                 if role in interaction.user.roles:
                     await interaction.user.remove_roles(role, reason="React Role Toggle")
-                    await interaction.response.send_message(f"➖ Removed **{role.name}**", ephemeral=True)
+                    await interaction.response.send_message(f"➖ Removed **{role_name}**", ephemeral=True)
                 else:
                     await interaction.user.add_roles(role, reason="React Role Toggle")
-                    await interaction.response.send_message(f"➕ Added **{role.name}**", ephemeral=True)
+                    await interaction.response.send_message(f"➕ Added **{role_name}**", ephemeral=True)
             except discord.Forbidden:
                 await interaction.response.send_message("❌ I do not have permission to manage roles. Please contact an admin.", ephemeral=True)
 

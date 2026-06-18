@@ -113,8 +113,9 @@ class CRPCog(commands.GroupCog, name="crp"):
     @app_commands.describe(role="The role allowed to use CRP commands")
     @app_commands.checks.has_permissions(manage_guild=True)
     async def setup_role(self, interaction: discord.Interaction, role: discord.Role):
+        role_mentioned = role.mention
         await DatabaseController.set_crp_role(str(interaction.guild_id), str(role.id))
-        await interaction.response.send_message(f"✅ CRP Management role set to {role.mention}.", ephemeral=True)
+        await interaction.response.send_message(f"✅ CRP Management role set to {role_mentioned}.", ephemeral=True)
     # --- COMMITTEE COMMANDS 
 
     @committee_group.command(name="create", description="Create a new committee.")
@@ -163,16 +164,17 @@ class CRPCog(commands.GroupCog, name="crp"):
         guild_id, user_id = str(interaction.guild_id), str(target.id)
         rtype = RoleType(role.value)
         cid, final_name = None, "Global"
-
+        role_name = role.name
+        target_mention = target.mention
         if rtype in COMMITTEE_ROLES:
             if not committee_name:
-                return await interaction.followup.send(f"❌ Role **{role.name}** requires a committee!")
+                return await interaction.followup.send(f"❌ Role **{role_name}** requires a committee!")
             c = await DatabaseController.get_committee_by_name(guild_id, committee_name)
             if not c:
                 return await interaction.followup.send(f"❌ Committee **{committee_name}** does not exist.")
             cid, final_name = c[0], c[1]
         elif committee_name:
-            return await interaction.followup.send(f"ℹ️ **{role.name}** is a Global role. Leave committee blank.")
+            return await interaction.followup.send(f"ℹ️ **{role_name}** is a Global role. Leave committee blank.")
 
         cur_rows = await DatabaseController.get_user_committee_roles(guild_id, user_id)
         assigns = [{"committee_name": r[0], "role": r[1]} for r in cur_rows]
@@ -181,28 +183,32 @@ class CRPCog(commands.GroupCog, name="crp"):
         try:
             MemberRoles(user_id=user_id, assignments=assigns)
         except ValidationError as e:
-            return await interaction.followup.send(f"⚠️ {e.errors()[0]['msg']}")
+            error = e.errors()[0]['msg']
+            return await interaction.followup.send(f"⚠️ {error}")
 
         await DatabaseController.assign_committee_role(guild_id, user_id, cid, rtype.value)
-        await interaction.followup.send(f"✅ Assigned {target.mention} as **{role.name}** ({final_name}).")
+        await interaction.followup.send(f"✅ Assigned {target_mention} as **{role_name}** ({final_name}).")
 
     @role_group.command(name="remove", description="Yoink a specific role.")
     @app_commands.autocomplete(committee_name=committee_autocomplete)
     @app_commands.choices(role=[app_commands.Choice(name=r.title(), value=r) for r in ROLE_WEIGHT.keys()])
     async def role_remove(self, interaction: discord.Interaction, target: discord.Member, role: app_commands.Choice[str], committee_name: Optional[str] = None):
         cid = None
+        target_mention = target.mention
         if committee_name:
             c = await DatabaseController.get_committee_by_name(str(interaction.guild_id), committee_name)
             if c: cid = c[0]
+        role_name = role.name
         await DatabaseController.remove_assignment(str(interaction.guild_id), str(target.id), cid, role.value)
-        await interaction.followup.send(f"✅ Yoinked **{role.name}** from {target.mention}.")
+        await interaction.followup.send(f"✅ Yoinked **{role_name}** from {target_mention}.")
 
     @role_group.command(name="view", description="View a member's current roles.")
     async def role_view(self, interaction: discord.Interaction, target: discord.Member = None):
         target = target or interaction.user
+        target_display_name = target.display_name
         rows = await DatabaseController.get_user_committee_roles(str(interaction.guild_id), str(target.id))
         if not rows:
-            return await interaction.followup.send(f"🔍 {target.display_name} has no roles.")
+            return await interaction.followup.send(f"🔍 {target_display_name} has no roles.")
 
         embed = discord.Embed(title=f"Roles: {target.display_name}", color=discord.Color.blue())
         for cname, rtype in rows:

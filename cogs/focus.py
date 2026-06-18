@@ -68,8 +68,9 @@ class FocusCog(commands.GroupCog, name="focus"):
     @role_group.command(name="set", description="Set the Focus Mode role")
     @app_commands.checks.has_permissions(manage_guild=True)
     async def focus_role_set(self, interaction: discord.Interaction, role: discord.Role):
+        role_mentioned = role.mention
         await DatabaseController.set_focus_role(str(interaction.guild_id), str(role.id))
-        await interaction.response.send_message(f"✅ Focus role set to {role.mention}.", ephemeral=True)
+        await interaction.response.send_message(f"✅ Focus role set to {role_mentioned}.", ephemeral=True)
 
     @role_group.command(name="remove", description="Remove the Focus Mode role configuration")
     @app_commands.checks.has_permissions(manage_guild=True)

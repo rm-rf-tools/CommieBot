@@ -336,7 +336,8 @@ class DLCog(commands.GroupCog, name="dl"):
             needs_shrink = file_size_mb > target_compression_mb
             
             if needs_shrink:
-                await interaction.edit_original_response(content=f"⏳ Video is {file_size_mb:.1f}MB. Compressing to fit 10.0MB upload limit...")
+                file_size_mb = f"{file_size_mb:.1f}"
+                await interaction.edit_original_response(content=f"⏳ Video is {file_size_mb}MB. Compressing to fit 10.0MB upload limit...")
             else:
                 await interaction.edit_original_response(content=f"⏳ Processing video encoding...")
                 
@@ -356,12 +357,13 @@ class DLCog(commands.GroupCog, name="dl"):
                 
             # Pre-upload check: Verify we are actually under the strict 10MB server limit
             final_file_size_mb = os.path.getsize(final_file) / (1024 * 1024)
-            logger.info(f"Final file ready for upload: {final_file_size_mb:.2f}MB")
+            final_file_size_mb = f"{final_file_size_mb:.2f}"
+            logger.info(f"Final file ready for upload: {final_file_size_mb}MB")
 
             if final_file_size_mb >= server_limit_mb:
-                logger.error(f"Video compression insufficient. Final: {final_file_size_mb:.2f}MB, Limit: {server_limit_mb:.2f}MB")
+                logger.error(f"Video compression insufficient. Final: {final_file_size_mb}MB, Limit: {server_limit_mb}MB")
                 return await interaction.edit_original_response(
-                    content=f"❌ The resulting video ({final_file_size_mb:.2f}MB) is still too large for this server's limit ({server_limit_mb:.2f}MB) after compression."
+                    content=f"❌ The resulting video ({final_file_size_mb}MB) is still too large for this server's limit ({server_limit_mb}MB) after compression."
                 )
                 
             file = discord.File(final_file)
@@ -370,16 +372,17 @@ class DLCog(commands.GroupCog, name="dl"):
                 await DatabaseController.log_dl_history(str(interaction.guild_id), str(interaction.user.id), url, "video")
                 
                 # Send the final video out to the public channel (doesn't trigger a "reply")
-                await interaction.channel.send(content=f"✅ {interaction.user.mention} Downloaded a video:", file=file)
+                user_mention = interaction.user.mention
+                await interaction.channel.send(content=f"✅ {user_mention} Downloaded a video:", file=file)
                 # Confirm cleanly in the original ephemeral message
                 await interaction.edit_original_response(content="✅ Video uploaded successfully!")
                 logger.info(f"Successfully uploaded video for {url}")
             except discord.errors.HTTPException as e:
                 if e.status == 413:
-                    logger.error(f"Discord rejected the file payload (413). Size: {final_file_size_mb:.2f}MB")
+                    logger.error(f"Discord rejected the file payload (413). Size: {final_file_size_mb}MB")
                     await interaction.edit_original_response(
                         content=f"❌ Discord rejected the file (413 Payload Too Large). The compression didn't shrink it enough.\n"
-                        f"Final Size: {final_file_size_mb:.2f}MB | Server Limit: {server_limit_mb:.2f}MB"
+                        f"Final Size: {final_file_size_mb}MB | Server Limit: {server_limit_mb}MB"
                     )
                 else:
                     raise
@@ -387,7 +390,7 @@ class DLCog(commands.GroupCog, name="dl"):
         except Exception as e:
             err_trace = traceback.format_exc()
             logger.error(f"Unexpected error in dl_video: {err_trace}")
-            await interaction.edit_original_response(content=f"❌ An unexpected error occurred while processing:\n```\n{str(e)}\n```")
+            await interaction.edit_original_response(content=f"❌ An unexpected error occurred while processing:\n```\n{e}\n```")
         finally:
             shutil.rmtree(req_dir, ignore_errors=True)
 
@@ -446,12 +449,14 @@ class DLCog(commands.GroupCog, name="dl"):
             await DatabaseController.log_dl_history(str(interaction.guild_id), str(interaction.user.id), url, "photo")
 
             batch_size = 10
-            for i in range(0, len(downloaded_photos), batch_size):
+            len_downloaded_photos = len(downloaded_photos)
+            for i in range(0, len_downloaded_photos, batch_size):
                 batch_files = downloaded_photos[i:i+batch_size]
                 discord_files = [discord.File(f) for f in batch_files]
                 if i == 0:
                     # Send public channel notification
-                    await interaction.channel.send(content=f"✅ {interaction.user.mention} Downloaded {len(downloaded_photos)} photo(s):", files=discord_files)
+                    user_mention = interaction.user.mention
+                    await interaction.channel.send(content=f"✅ {user_mention} Downloaded {len_downloaded_photos} photo(s):", files=discord_files)
                     # Complete ephemeral
                     await interaction.edit_original_response(content="✅ Photos uploaded successfully!")
                 else:
@@ -459,7 +464,7 @@ class DLCog(commands.GroupCog, name="dl"):
                 
         except Exception as e:
             logger.error(f"Error serving photos: {e}", exc_info=True)
-            await interaction.edit_original_response(content=f"❌ An error occurred: `{str(e)}`")
+            await interaction.edit_original_response(content=f"❌ An error occurred: `{e}`")
         finally:
             shutil.rmtree(req_dir, ignore_errors=True)
 
@@ -488,7 +493,7 @@ class DLCog(commands.GroupCog, name="dl"):
             await interaction.followup.send("✅ Cookies file successfully updated.", ephemeral=True)
         except Exception as e:
             logger.error(f"Failed to save cookies: {e}", exc_info=True)
-            await interaction.followup.send(f"❌ Failed to save cookies: `{str(e)}`", ephemeral=True)
+            await interaction.followup.send(f"❌ Failed to save cookies: `{e}`", ephemeral=True)
 
 async def setup(bot):
     await bot.add_cog(DLCog(bot))

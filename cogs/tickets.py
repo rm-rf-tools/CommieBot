@@ -187,14 +187,16 @@ class Tickets(commands.Cog):
     @staff_group.command(name="add", description="Add a role to the ticket staff list")
     @app_commands.checks.has_permissions(manage_guild=True)
     async def staff_add(self, interaction: discord.Interaction, role: discord.Role):
+        role_mentioned = role.mention
         await DatabaseController.add_staff_role(str(interaction.guild.id), str(role.id))
-        await interaction.response.send_message(f"✅ Added {role.mention} to ticket staff.", ephemeral=True)
+        await interaction.response.send_message(f"✅ Added {role_mentioned} to ticket staff.", ephemeral=True)
 
     @staff_group.command(name="remove", description="Remove a role from the ticket staff list")
     @app_commands.checks.has_permissions(manage_guild=True)
     async def staff_remove(self, interaction: discord.Interaction, role: discord.Role):
+        role_mentioned = role.mention
         await DatabaseController.remove_staff_role(str(interaction.guild.id), str(role.id))
-        await interaction.response.send_message(f"✅ Removed {role.mention} from ticket staff.", ephemeral=True)
+        await interaction.response.send_message(f"✅ Removed {role_mentioned} from ticket staff.", ephemeral=True)
 
     @staff_group.command(name="list", description="List all current ticket staff roles")
     async def staff_list(self, interaction: discord.Interaction):

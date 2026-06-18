@@ -460,9 +460,10 @@ class FormsCog(commands.GroupCog, name="forms"):
         app = await DatabaseController.get_applicant(str(interaction.guild_id), str(interaction.user.id))
         
         if app:
-            recent = await DatabaseController.check_recent_submission(form.id, app.id, form.cooldown_days)
+            form_cooldown_days = form.cooldown_days
+            recent = await DatabaseController.check_recent_submission(form.id, app.id, form_cooldown_days)
             if recent:
-                return await interaction.response.send_message(f"⏳ You have applied recently! There is a {form.cooldown_days} day cooldown.", ephemeral=True)
+                return await interaction.response.send_message(f"⏳ You have applied recently! There is a {form_cooldown_days} day cooldown.", ephemeral=True)
             
             view = FormWizardView(form, questions, app)
             await view.start(interaction)
@@ -491,8 +492,9 @@ class FormsCog(commands.GroupCog, name="forms"):
     @app_commands.command(name="set_role", description="Set the admin role capable of managing and reviewing forms.")
     @app_commands.checks.has_permissions(manage_guild=True)
     async def forms_set_role(self, interaction: discord.Interaction, role: discord.Role):
+        roles_mentioned = roles.mention
         await DatabaseController.set_forms_role(str(interaction.guild_id), str(role.id))
-        await interaction.response.send_message(f"✅ Users with the {role.mention} role can now manage forms.", ephemeral=True)
+        await interaction.response.send_message(f"✅ Users with the {role_mentioned} role can now manage forms.", ephemeral=True)
 
 
     # ==========================
@@ -515,9 +517,10 @@ class FormsCog(commands.GroupCog, name="forms"):
     async def add_question_cmd(self, interaction: discord.Interaction, form_name: str, q_type: app_commands.Choice[str], text: str, options: Optional[str] = None):
         form = await DatabaseController.get_form_by_name(str(interaction.guild_id), form_name)
         if not form: return await interaction.response.send_message("❌ Form not found.", ephemeral=True)
-        
+        q_type_name = q_type.name
+        form_name = form.name
         await DatabaseController.add_form_question(form.id, text, q_type.value, options)
-        await interaction.response.send_message(f"✅ Added {q_type.name} question to **{form.name}**.", ephemeral=True)
+        await interaction.response.send_message(f"✅ Added {q_type_name} question to **{form_name}**.", ephemeral=True)
 
     @app_commands.command(name="delete_cmd", description="Fallback: Delete a form via text command")
     @app_commands.autocomplete(form_name=form_autocomplete)
@@ -525,9 +528,9 @@ class FormsCog(commands.GroupCog, name="forms"):
     async def delete_cmd(self, interaction: discord.Interaction, form_name: str):
         form = await DatabaseController.get_form_by_name(str(interaction.guild_id), form_name)
         if not form: return await interaction.response.send_message("❌ Form not found.", ephemeral=True)
-        
+        form_name = form.name
         await DatabaseController.delete_form(form.id)
-        await interaction.response.send_message(f"🗑️ Deleted **{form.name}**.", ephemeral=True)
+        await interaction.response.send_message(f"🗑️ Deleted **{form_name}**.", ephemeral=True)
 
 async def setup(bot):
     await bot.add_cog(FormsCog(bot))
