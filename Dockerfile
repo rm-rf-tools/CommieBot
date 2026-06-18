@@ -7,7 +7,7 @@ WORKDIR /app
 # 1. Install system dependencies (added 'upgrade' to patch 0-days)
 RUN apt-get update && \
     apt-get upgrade -y && \
-    apt-get install -y ffmpeg build-essential python3-dev git curl libgl1 libglib2.0-0 libopus0 && \
+    apt-get install -y ffmpeg build-essential python3-dev git curl libgl1 libglib2.0-0 libopus0 chromium chromium-driver && \
     rm -rf /var/lib/apt/lists/*
 
 # 2. Clone the official FaceFusion repo into the container

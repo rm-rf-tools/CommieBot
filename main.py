@@ -45,7 +45,7 @@ class MutualAidBot(commands.Bot):
         await self.load_extension("cogs.dl") 
         await self.load_extension("cogs.kirk") 
         await self.load_extension("cogs.music") 
-
+        await self.load_extension("cogs.mock_reddit")
         # await self.load_extension("cogs.facts") 
 
         
