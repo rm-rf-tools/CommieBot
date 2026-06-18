@@ -85,8 +85,6 @@ POST_TEMPLATE = """
             padding: 16px;
             display: inline-block;
             color: var(--text-primary);
-            border: 1px solid rgba(129, 131, 132, 0.15); /* Slight border for neatness */
-            border-radius: 8px;
         }
         .header-top {
             display: flex;
@@ -96,8 +94,13 @@ POST_TEMPLATE = """
         .back-icon {
             margin-right: 16px;
             color: var(--text-primary);
+            background-color: var(--btn-bg);
+            border-radius: 50%;
+            width: 36px;
+            height: 36px;
             display: flex;
             align-items: center;
+            justify-content: center;
         }
         .header-info {
             display: flex;
@@ -141,7 +144,7 @@ POST_TEMPLATE = """
             margin-top: 1px;
         }
         .more-icon {
-            color: var(--text-secondary);
+            color: var(--text-primary);
             display: flex;
             align-items: center;
         }
@@ -171,7 +174,7 @@ POST_TEMPLATE = """
             background-position: center;
             filter: blur(25px);
             opacity: 0.45;
-            transform: scale(1.2); /* Prevents blur from bleeding soft white edges */
+            transform: scale(1.2);
             z-index: 1;
         }
         .media-img {
@@ -205,6 +208,14 @@ POST_TEMPLATE = """
             gap: 6px;
         }
         .action-icon {
+            width: 18px; 
+            height: 18px; 
+        }
+        .icon-filled {
+            fill: currentColor;
+            stroke: none;
+        }
+        .back-svg {
             width: 20px; 
             height: 20px; 
             fill: none; 
@@ -213,10 +224,6 @@ POST_TEMPLATE = """
             stroke-linecap: round; 
             stroke-linejoin: round;
         }
-        .icon-filled {
-            fill: currentColor;
-            stroke: none;
-        }
     </style>
 </head>
 <body>
@@ -224,7 +231,7 @@ POST_TEMPLATE = """
         <!-- Header -->
         <div class="header-top">
             <div class="back-icon">
-                <svg class="action-icon" viewBox="0 0 24 24"><line x1="19" y1="12" x2="5" y2="12"></line><polyline points="12 19 5 12 12 5"></polyline></svg>
+                <svg class="back-svg" viewBox="0 0 24 24"><line x1="19" y1="12" x2="5" y2="12"></line><polyline points="12 19 5 12 12 5"></polyline></svg>
             </div>
             <div class="header-info">
                 <div class="avatar">
@@ -256,22 +263,22 @@ POST_TEMPLATE = """
         <div class="text-body">{{ text }}</div>
         {% endif %}
         
-        <!-- Footer Buttons -->
+        <!-- Footer Buttons using the provided SVGs -->
         <div class="footer">
-            <div class="action-button">
-                <svg class="action-icon" viewBox="0 0 24 24"><line x1="12" y1="19" x2="12" y2="5"></line><polyline points="5 12 12 5 19 12"></polyline></svg>
+            <div class="action-button" style="padding-left: 10px; padding-right: 10px;">
+                <svg class="action-icon" fill="currentColor" icon-name="upvote" viewBox="0 0 20 20" xmlns="http://www.w3.org/2000/svg"><path d="M10 19a3.966 3.966 0 01-3.96-3.962V10.98H2.838a1.731 1.731 0 01-1.605-1.073 1.734 1.734 0 01.377-1.895L9.364.254a.925.925 0 011.272 0l7.754 7.759c.498.499.646 1.242.376 1.894-.27.652-.9 1.073-1.605 1.073h-3.202v4.058A3.965 3.965 0 019.999 19H10zM2.989 9.179H7.84v5.731c0 1.13.81 2.163 1.934 2.278a2.163 2.163 0 002.386-2.15V9.179h4.851L10 2.163 2.989 9.179z"></path></svg>
                 <span style="margin: 0 4px;">{{ upvotes }}</span>
-                <svg class="action-icon" viewBox="0 0 24 24"><line x1="12" y1="5" x2="12" y2="19"></line><polyline points="19 12 12 19 5 12"></polyline></svg>
+                <svg class="action-icon" fill="currentColor" icon-name="downvote" viewBox="0 0 20 20" xmlns="http://www.w3.org/2000/svg"><path d="M10 1a3.966 3.966 0 013.96 3.962V9.02h3.202c.706 0 1.335.42 1.605 1.073.27.652.122 1.396-.377 1.895l-7.754 7.759a.925.925 0 01-1.272 0l-7.754-7.76a1.734 1.734 0 01-.376-1.894c.27-.652.9-1.073 1.605-1.073h3.202V4.962A3.965 3.965 0 0110 1zm7.01 9.82h-4.85V5.09c0-1.13-.81-2.163-1.934-2.278a2.163 2.163 0 00-2.386 2.15v5.859H2.989l7.01 7.016 7.012-7.016z"></path></svg>
             </div>
             <div class="action-button">
-                <svg class="action-icon" viewBox="0 0 24 24"><path d="M21 11.5a8.38 8.38 0 0 1-.9 3.8 8.5 8.5 0 0 1-7.6 4.7 8.38 8.38 0 0 1-3.8-.9L3 21l1.9-5.7a8.38 8.38 0 0 1-.9-3.8 8.5 8.5 0 0 1 4.7-7.6 8.38 8.38 0 0 1 3.8-.9h.5a8.48 8.48 0 0 1 8 8v.5z"></path></svg>
+                <svg aria-hidden="true" class="action-icon" fill="currentColor" icon-name="comment" viewBox="0 0 20 20" xmlns="http://www.w3.org/2000/svg"><path d="M10 1a9 9 0 00-9 9c0 1.947.79 3.58 1.935 4.957L.231 17.661A.784.784 0 00.785 19H10a9 9 0 009-9 9 9 0 00-9-9zm0 16.2H6.162c-.994.004-1.907.053-3.045.144l-.076-.188a36.981 36.981 0 002.328-2.087l-1.05-1.263C3.297 12.576 2.8 11.331 2.8 10c0-3.97 3.23-7.2 7.2-7.2s7.2 3.23 7.2 7.2-3.23 7.2-7.2 7.2z"></path></svg>
                 <span>{{ comments }}</span>
             </div>
             <div class="action-button">
-                <svg class="action-icon" viewBox="0 0 24 24"><polyline points="17 1 21 5 17 9"></polyline><path d="M3 11V9a4 4 0 0 1 4-4h14"></path><polyline points="7 23 3 19 7 15"></polyline><path d="M21 13v2a4 4 0 0 1-4 4H3"></path></svg>
+                <svg aria-hidden="true" class="action-icon" fill="currentColor" icon-name="rotate" viewBox="0 0 20 20" xmlns="http://www.w3.org/2000/svg"><path d="M17.895 10a.9.9 0 01-1.8 0c0-2.812-2.286-5.1-5.1-5.1h-2.92l1.363 1.362A.898.898 0 018.8 7.798a.897.897 0 01-.637-.264L5.265 4.636a.898.898 0 010-1.272l2.898-2.9a.897.897 0 011.274 0 .898.898 0 010 1.273L8.074 3.099h2.921c3.806 0 6.9 3.095 6.9 6.9zm-8.891 6.9h2.921l-1.363 1.362a.898.898 0 00.638 1.536.897.897 0 00.636-.264l2.899-2.898a.898.898 0 000-1.272l-2.899-2.898a.897.897 0 00-1.274 0 .898.898 0 000 1.272l1.364 1.362H9.003a5.106 5.106 0 01-5.1-5.1.9.9 0 00-1.8 0c0 3.805 3.096 6.9 6.9 6.9z"></path></svg>
             </div>
             <div class="action-button">
-                <svg class="action-icon" viewBox="0 0 24 24" style="stroke-width:2;"><path d="M10 15v4a2 2 0 0 0 2 2h7a2 2 0 0 0 2-2v-7a2 2 0 0 0-2-2h-4"/><polyline points="13 6 10 3 7 6"/><line x1="10" y1="3" x2="10" y2="15"/></svg>
+                <svg aria-hidden="true" class="action-icon" fill="currentColor" icon-name="share" viewBox="0 0 20 20" xmlns="http://www.w3.org/2000/svg"><path d="M12.8 17.524l6.89-6.887a.9.9 0 000-1.273L12.8 2.477a1.64 1.64 0 00-1.782-.349 1.64 1.64 0 00-1.014 1.518v2.593C4.054 6.728 1.192 12.075 1 17.376a1.353 1.353 0 00.862 1.32 1.35 1.35 0 001.531-.364l.334-.381c1.705-1.944 3.323-3.791 6.277-4.103v2.509c0 .667.398 1.262 1.014 1.518a1.638 1.638 0 001.783-.349v-.002zm-.994-1.548V12h-.9c-3.969 0-6.162 2.1-8.001 4.161.514-4.011 2.823-8.16 8-8.16h.9V4.024L17.784 10l-5.977 5.976z"></path></svg>
                 <span>Share</span>
             </div>
         </div>
@@ -329,7 +336,7 @@ def render_post_sync(config: dict, output_filename: str):
 # ==========================================
 # 5. Discord Cog
 # ==========================================
-class MockRedditCog(commands.GroupCog, name="reddit"):
+class RedditCog(commands.GroupCog, name="reddit"):
     def __init__(self, bot):
         self.bot = bot
 
@@ -430,4 +437,4 @@ class MockRedditCog(commands.GroupCog, name="reddit"):
                 os.remove(output_filename)
 
 async def setup(bot):
-    await bot.add_cog(MockRedditCog(bot))
+    await bot.add_cog(RedditCog(bot))
