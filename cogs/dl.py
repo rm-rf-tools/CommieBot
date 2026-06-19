@@ -357,13 +357,13 @@ class DLCog(commands.GroupCog, name="dl"):
                 
             # Pre-upload check: Verify we are actually under the strict 10MB server limit
             final_file_size_mb = os.path.getsize(final_file) / (1024 * 1024)
-            final_file_size_mb = f"{final_file_size_mb:.2f}"
-            logger.info(f"Final file ready for upload: {final_file_size_mb}MB")
+            final_file_size_str = f"{final_file_size_mb:.2f}"
+            logger.info(f"Final file ready for upload: {final_file_size_str}MB")
 
             if final_file_size_mb >= server_limit_mb:
-                logger.error(f"Video compression insufficient. Final: {final_file_size_mb}MB, Limit: {server_limit_mb}MB")
+                logger.error(f"Video compression insufficient. Final: {final_file_size_str}MB, Limit: {server_limit_mb}MB")
                 return await interaction.edit_original_response(
-                    content=f"❌ The resulting video ({final_file_size_mb}MB) is still too large for this server's limit ({server_limit_mb}MB) after compression."
+                    content=f"❌ The resulting video ({final_file_size_str}MB) is still too large for this server's limit ({server_limit_mb}MB) after compression."
                 )
                 
             file = discord.File(final_file)
@@ -379,10 +379,10 @@ class DLCog(commands.GroupCog, name="dl"):
                 logger.info(f"Successfully uploaded video for {url}")
             except discord.errors.HTTPException as e:
                 if e.status == 413:
-                    logger.error(f"Discord rejected the file payload (413). Size: {final_file_size_mb}MB")
+                    logger.error(f"Discord rejected the file payload (413). Size: {final_file_size_str}MB")
                     await interaction.edit_original_response(
                         content=f"❌ Discord rejected the file (413 Payload Too Large). The compression didn't shrink it enough.\n"
-                        f"Final Size: {final_file_size_mb}MB | Server Limit: {server_limit_mb}MB"
+                        f"Final Size: {final_file_size_str}MB | Server Limit: {server_limit_mb}MB"
                     )
                 else:
                     raise

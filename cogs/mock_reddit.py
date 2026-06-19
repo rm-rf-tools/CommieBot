@@ -353,7 +353,7 @@ class RedditCog(commands.GroupCog, name="reddit"):
         
         subs = []
         for f in os.listdir(base_dir):
-            if f.endswith(".png"):
+            if f.endswith(".png") or f.endswith(".jpg") or f.endswith(".jpeg"):
                 subs.append(f[:-4])
                 
         return [
