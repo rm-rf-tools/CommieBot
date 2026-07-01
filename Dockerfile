@@ -20,7 +20,8 @@ RUN pip install --no-cache-dir -r /app/facefusion/requirements.txt && \
 # 4. Install your bot's standard requirements
 COPY requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
-
+RUN python3 -m pip install -U --pre "yt-dlp[default,curl-cffi]"
+RUN python3 -m pip install -U "git+https://github.com/instaloader/instaloader.git@refs/pull/2706/head"
 # 5. Copy the bot's code
 COPY . .
 
