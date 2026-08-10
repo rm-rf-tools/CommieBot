@@ -15,7 +15,7 @@ from .models import (
     TicketStaffRole, Profile, Skill, ProfileSkill, Event, EventAttendance,
     Applicant, FormTemplate, FormQuestion, FormSubmission, FormAnswer,
     ModWatch, ModLogConfig, FocusChannel, GrokReply, UserLastSeen, Movie,
-    RolePlan, RolePlanItem, TrackedWord, WordGroup, TheoryResource, Fact, MovieListItem, MovieList, DLHistory
+    RolePlan, RolePlanItem, TrackedWord, WordGroup, TheoryResource, Fact, MovieListItem, MovieList, DLHistory, UserTranscribeSetting
 )
 
 class DatabaseController:
@@ -1949,3 +1949,21 @@ class DatabaseController:
             stmt = select(DLHistory).where(DLHistory.guild_id == guild_id).order_by(DLHistory.timestamp.desc())
             result = await session.execute(stmt)
             return result.scalars().all()
+
+    # --- Transcription Settings ---
+    @staticmethod
+    async def get_transcribe_setting(user_id: str) -> str:
+        async with AsyncSession(engine) as session:
+            obj = await session.get(UserTranscribeSetting, user_id)
+            return obj.output_mode if obj else "chunk"
+
+    @staticmethod
+    async def set_transcribe_setting(user_id: str, output_mode: str):
+        async with AsyncSession(engine) as session:
+            obj = await session.get(UserTranscribeSetting, user_id)
+            if obj:
+                obj.output_mode = output_mode
+            else:
+                obj = UserTranscribeSetting(user_id=user_id, output_mode=output_mode)
+                session.add(obj)
+            await session.commit()

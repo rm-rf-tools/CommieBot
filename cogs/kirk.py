@@ -232,7 +232,7 @@ class KirkifyCog(commands.GroupCog, name="kirkify"):
         
         status_message = await interaction.followup.send(
             "⏳ **Processing media...**\n"
-            "*(This may take a while for videos. Check your developer terminal logs to see real-time progress!)*", 
+            "This may take a while for videos", 
             wait=True
         )
 

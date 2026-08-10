@@ -5,7 +5,11 @@ from typing import Optional
 from sqlmodel import SQLModel, Field
 from sqlalchemy import UniqueConstraint, Index, Column, LargeBinary
 
-
+class UserTranscribeSetting(SQLModel, table=True):
+    __tablename__ = "user_transcribe_settings"
+    user_id: str = Field(primary_key=True)
+    output_mode: str = Field(default="chunk")  # Options: "chunk", "file", "both"
+    
 class TheoryResource(SQLModel, table=True):
     __tablename__ = "theory_resources"
     
