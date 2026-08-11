@@ -15,7 +15,8 @@ from .models import (
     TicketStaffRole, Profile, Skill, ProfileSkill, Event, EventAttendance,
     Applicant, FormTemplate, FormQuestion, FormSubmission, FormAnswer,
     ModWatch, ModLogConfig, FocusChannel, GrokReply, UserLastSeen, Movie,
-    RolePlan, RolePlanItem, TrackedWord, WordGroup, TheoryResource, Fact, MovieListItem, MovieList, DLHistory, UserTranscribeSetting
+    RolePlan, RolePlanItem, TrackedWord, WordGroup, TheoryResource, Fact, 
+    MovieListItem, MovieList, DLHistory, UserTranscribeSetting, QOTDQuestion
 )
 
 class DatabaseController:
@@ -1967,3 +1968,79 @@ class DatabaseController:
                 obj = UserTranscribeSetting(user_id=user_id, output_mode=output_mode)
                 session.add(obj)
             await session.commit()
+
+    # --- Question of the Day (QOTD) ---
+    @staticmethod
+    async def set_qotd_channel(guild_id: str, channel_id: Optional[str]):
+        async with AsyncSession(engine) as session:
+            obj = await session.get(ServerConfig, guild_id)
+            if obj:
+                obj.qotd_channel_id = channel_id
+            else:
+                obj = ServerConfig(guild_id=guild_id, qotd_channel_id=channel_id)
+                session.add(obj)
+            await session.commit()
+
+    @staticmethod
+    async def get_qotd_channel(guild_id: str):
+        async with AsyncSession(engine) as session:
+            obj = await session.get(ServerConfig, guild_id)
+            return obj.qotd_channel_id if obj else None
+
+    @staticmethod
+    async def add_qotd_question(guild_id: str, user_id: str, text: str) -> int:
+        async with AsyncSession(engine) as session:
+            obj = QOTDQuestion(guild_id=guild_id, user_id=user_id, question_text=text, submitted_at=int(time.time()))
+            session.add(obj)
+            await session.commit()
+            await session.refresh(obj)
+            return obj.id
+
+    @staticmethod
+    async def get_random_pending_qotd(guild_id: str):
+        async with AsyncSession(engine) as session:
+            stmt = select(QOTDQuestion).where(
+                QOTDQuestion.guild_id == guild_id,
+                QOTDQuestion.status == "pending"
+            ).order_by(func.random()).limit(1)
+            result = await session.execute(stmt)
+            return result.scalar_one_or_none()
+
+    @staticmethod
+    async def mark_qotd_asked(question_id: int):
+        async with AsyncSession(engine) as session:
+            obj = await session.get(QOTDQuestion, question_id)
+            if obj:
+                obj.status = "asked"
+                await session.commit()
+
+    @staticmethod
+    async def get_all_pending_qotd(guild_id: str):
+        async with AsyncSession(engine) as session:
+            stmt = select(QOTDQuestion).where(
+                QOTDQuestion.guild_id == guild_id,
+                QOTDQuestion.status == "pending"
+            ).order_by(QOTDQuestion.submitted_at.asc())
+            result = await session.execute(stmt)
+            return result.scalars().all()
+
+    @staticmethod
+    async def search_pending_qotd(guild_id: str, query: str):
+        async with AsyncSession(engine) as session:
+            stmt = select(QOTDQuestion).where(
+                QOTDQuestion.guild_id == guild_id,
+                QOTDQuestion.status == "pending",
+                QOTDQuestion.question_text.ilike(f"%{query}%")
+            ).limit(25)
+            result = await session.execute(stmt)
+            return result.scalars().all()
+
+    @staticmethod
+    async def delete_qotd(question_id: int) -> bool:
+        async with AsyncSession(engine) as session:
+            obj = await session.get(QOTDQuestion, question_id)
+            if obj:
+                await session.delete(obj)
+                await session.commit()
+                return True
+            return False

@@ -5,6 +5,30 @@ from typing import Optional
 from sqlmodel import SQLModel, Field
 from sqlalchemy import UniqueConstraint, Index, Column, LargeBinary
 
+
+class ServerConfig(SQLModel, table=True):
+    __tablename__ = "server_configs"
+    guild_id: str = Field(primary_key=True)
+    role_id: Optional[str] = None
+    crp_role_id: Optional[str] = None
+    ticket_role_id: Optional[str] = None
+    forms_role_id: Optional[str] = None  
+    autorole_id: Optional[str] = None
+    autorole_enabled: bool = Field(default=False)
+    focus_role_id: Optional[str] = None 
+    facts_role_id: Optional[str] = None
+    facts_channel_id: Optional[str] = None
+    qotd_channel_id: Optional[str] = None  
+
+class QOTDQuestion(SQLModel, table=True):
+    __tablename__ = "qotd_questions"
+    id: Optional[int] = Field(default=None, primary_key=True)
+    guild_id: str = Field(index=True)
+    user_id: str
+    question_text: str
+    status: str = Field(default="pending")
+    submitted_at: int
+
 class UserTranscribeSetting(SQLModel, table=True):
     __tablename__ = "user_transcribe_settings"
     user_id: str = Field(primary_key=True)
@@ -22,19 +46,6 @@ class TheoryResource(SQLModel, table=True):
     description: Optional[str] = None
     tags: Optional[str] = None
     is_dead: bool = Field(default=False) 
-
-class ServerConfig(SQLModel, table=True):
-    __tablename__ = "server_configs"
-    guild_id: str = Field(primary_key=True)
-    role_id: Optional[str] = None
-    crp_role_id: Optional[str] = None
-    ticket_role_id: Optional[str] = None
-    forms_role_id: Optional[str] = None  
-    autorole_id: Optional[str] = None
-    autorole_enabled: bool = Field(default=False)
-    focus_role_id: Optional[str] = None 
-    facts_role_id: Optional[str] = None
-    facts_channel_id: Optional[str] = None
 
 class Fact(SQLModel, table=True):
     __tablename__ = "facts"
