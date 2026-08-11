@@ -50,7 +50,7 @@ class MutualAidBot(commands.Bot):
         await self.load_extension("cogs.transcribe")
         await self.load_extension("cogs.image")
         await self.load_extension("cogs.qotd")
-
+        await self.load_extension("cogs.secret")
         # await self.load_extension("cogs.facts") 
 
         

@@ -19,6 +19,7 @@ class ServerConfig(SQLModel, table=True):
     facts_role_id: Optional[str] = None
     facts_channel_id: Optional[str] = None
     qotd_channel_id: Optional[str] = None  
+    secret_channel_id: Optional[str] = None
 
 class QOTDQuestion(SQLModel, table=True):
     __tablename__ = "qotd_questions"

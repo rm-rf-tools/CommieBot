@@ -2044,3 +2044,20 @@ class DatabaseController:
                 await session.commit()
                 return True
             return False
+
+    @staticmethod
+    async def set_secret_channel(guild_id: str, channel_id: Optional[str]):
+        async with AsyncSession(engine) as session:
+            obj = await session.get(ServerConfig, guild_id)
+            if obj:
+                obj.secret_channel_id = channel_id
+            else:
+                obj = ServerConfig(guild_id=guild_id, secret_channel_id=channel_id)
+                session.add(obj)
+            await session.commit()
+
+    @staticmethod
+    async def get_secret_channel(guild_id: str):
+        async with AsyncSession(engine) as session:
+            obj = await session.get(ServerConfig, guild_id)
+            return obj.secret_channel_id if obj else None
