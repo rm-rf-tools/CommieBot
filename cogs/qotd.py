@@ -3,8 +3,11 @@ filename: qotd.py
 description: Question of the Day system that allows user submissions and automatically asks a random question at noon.
 Views:
     - QOTDListView: Handles pagination for viewing pending questions.
+    - QOTDSubmitView: Persistent view containing the 'Submit Question' trigger button.
+    - QOTDSubmitModal: Modal for users to type and submit their question.
 Commands:
     - /qotd submit <question>: Submit a new question for the QOTD rotation. (User)
+    - /qotd button: Deploy the persistent 'Submit Question' button to a channel. (Admin: Manage Guild)
     - /qotd channel <channel>: Set the channel where the QOTD will be posted. (Admin: Manage Guild)
     - /qotd list view: View a paginated list of all pending QOTD submissions. (Admin: Manage Guild)
     - /qotd list export: Export all pending QOTD submissions to a CSV file. (Admin: Manage Guild)
@@ -19,6 +22,35 @@ import datetime
 import csv
 import io
 from db import DatabaseController
+
+
+class QOTDSubmitModal(discord.ui.Modal, title="Submit Question of the Day"):
+    question_text = discord.ui.TextInput(
+        label="Your Question",
+        style=discord.TextStyle.paragraph,
+        placeholder="Type your question here...",
+        required=True,
+        max_length=1000
+    )
+
+    async def on_submit(self, interaction: discord.Interaction):
+        await interaction.response.defer(ephemeral=True)
+        await DatabaseController.add_qotd_question(
+            str(interaction.guild_id), 
+            str(interaction.user.id), 
+            self.question_text.value.strip()
+        )
+        await interaction.followup.send("✅ Your question has been added to the queue!", ephemeral=True)
+
+
+class QOTDSubmitView(discord.ui.View):
+    def __init__(self):
+        super().__init__(timeout=None)
+
+    @discord.ui.button(label="📝 Submit Question", style=discord.ButtonStyle.primary, custom_id="persistent_qotd_submit_btn")
+    async def submit_question(self, interaction: discord.Interaction, button: discord.ui.Button):
+        await interaction.response.send_modal(QOTDSubmitModal())
+
 
 class QOTDListView(discord.ui.View):
     def __init__(self, questions: list):
@@ -156,6 +188,17 @@ class QOTDCog(commands.GroupCog, name="qotd"):
         await DatabaseController.add_qotd_question(str(interaction.guild_id), str(interaction.user.id), question.strip())
         await interaction.followup.send("✅ Your question has been added to the queue!")
 
+    @app_commands.command(name="button", description="Create a permanent button for users to submit QOTD.")
+    @app_commands.checks.has_permissions(manage_guild=True)
+    async def qotd_button(self, interaction: discord.Interaction):
+        embed = discord.Embed(
+            title="❓ Submit a Question of the Day", 
+            description="Click the button below to submit a question to the server's QOTD queue!", 
+            color=discord.Color.purple()
+        )
+        await interaction.channel.send(embed=embed, view=QOTDSubmitView())
+        await interaction.response.send_message("✅ QOTD submission button generated successfully.", ephemeral=True)
+
     @app_commands.command(name="channel", description="Set the channel where the QOTD will be posted.")
     @app_commands.checks.has_permissions(manage_guild=True)
     async def qotd_channel(self, interaction: discord.Interaction, channel: discord.TextChannel):
@@ -227,4 +270,5 @@ class QOTDCog(commands.GroupCog, name="qotd"):
         await interaction.followup.send("✅ Here is the current queue:", file=file)
 
 async def setup(bot):
+    bot.add_view(QOTDSubmitView())
     await bot.add_cog(QOTDCog(bot))
